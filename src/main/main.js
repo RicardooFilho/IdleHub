@@ -1,5 +1,6 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell, dialog, protocol, net } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const config = require('./config');
 const { PRESETS, gameFromPreset, sanitizeGame } = require('./games');
 const { AccountManager } = require('./accounts');
@@ -26,6 +27,25 @@ app.userAgentFallback = app.userAgentFallback
 // Ícone: pixel art do IdleLive. .ico (vários tamanhos) para janela e bandeja; .png para notificações.
 const ICON = path.join(__dirname, '../../build/icon.png');
 const ICON_ICO = path.join(__dirname, '../../build/icon.ico');
+
+// A interface abre por idlehub://app/… em vez de file://: assim ela pode buscar os ícones e a fonte
+// que vêm junto com o app (o Chromium não deixa uma página file:// usar fetch). Só estas pastas são servidas.
+const APP_ROOT = path.join(__dirname, '..', '..');
+const UI_ALLOWED = [
+  'src/renderer/',
+  'node_modules/@awesome.me/webawesome/dist-cdn/',
+  'node_modules/@fortawesome/fontawesome-free/svgs/',
+  'node_modules/@fontsource/montserrat/',
+];
+protocol.registerSchemesAsPrivileged([{ scheme: 'idlehub', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+
+function serveUi() {
+  protocol.handle('idlehub', (req) => {
+    const rel = path.posix.normalize(decodeURIComponent(new URL(req.url).pathname).replace(/^\/+/, ''));
+    if (rel.startsWith('..') || !UI_ALLOWED.some((p) => rel.startsWith(p))) return new Response('Não encontrado', { status: 404 });
+    return net.fetch(pathToFileURL(path.join(APP_ROOT, rel)).toString());
+  });
+}
 
 let cfg;
 let win = null;
@@ -121,7 +141,12 @@ function createWindow() {
     },
   });
   win.removeMenu();
-  win.loadFile(path.join(__dirname, '../renderer/index.html'));
+  win.loadURL('idlehub://app/src/renderer/index.html');
+  if (process.env.IDLEHUB_DEBUG) {
+    win.webContents.on('console-message', (e) => console.log(`[ui] ${e.level}: ${e.message} (${e.sourceId}:${e.lineNumber})`));
+    // Teste: IDLEHUB_UI_EVAL roda um trecho na interface depois de abrir (ex.: clicar num botão antes do print).
+    if (process.env.IDLEHUB_UI_EVAL) win.webContents.once('did-finish-load', () => setTimeout(() => win.webContents.executeJavaScript(process.env.IDLEHUB_UI_EVAL).catch((err) => console.log(`[ui-eval] ${err.message}`)), 3000));
+  }
   win.once('ready-to-show', () => {
     if (!cfg.settings.startMinimized || !cfg.onboarded) win.show();
   });
@@ -313,6 +338,7 @@ function migrateConfig() {
 function start() {
   cfg = config.load();
   migrateConfig();
+  serveUi();
   createWindow();
   mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit });
   idlelive = new IdleLive({ onChange: scheduleEmit, onReady: () => panel?.onServerReady() });

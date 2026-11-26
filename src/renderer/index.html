@@ -1,23 +1,42 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="wa-dark">
   <head>
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' data:"
     />
     <title>IdleHub</title>
+    <!-- Componentes (Web Awesome 3.14.0), ícones (Font Awesome grátis) e fonte (Montserrat) vêm junto com o
+         app, para a janela funcionar mesmo sem internet. Mesma base visual do Painel (IdleLive). -->
+    <link rel="stylesheet" href="/node_modules/@fontsource/montserrat/400.css" />
+    <link rel="stylesheet" href="/node_modules/@fontsource/montserrat/500.css" />
+    <link rel="stylesheet" href="/node_modules/@fontsource/montserrat/600.css" />
+    <link rel="stylesheet" href="/node_modules/@fontsource/montserrat/700.css" />
+    <link rel="stylesheet" href="/node_modules/@awesome.me/webawesome/dist-cdn/styles/webawesome.css" />
+    <script type="module" src="icons.js"></script>
+    <script type="module" src="/node_modules/@awesome.me/webawesome/dist-cdn/webawesome.loader.js"></script>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div id="app">
-      <nav id="rail"></nav>
+      <nav id="rail" aria-label="Jogos"></nav>
       <main id="main">
         <header id="top"></header>
         <section id="content"></section>
       </main>
     </div>
-    <div id="modal-root"></div>
-    <script src="app.js"></script>
+
+    <!-- Janelas: o conteúdo é montado pelo app.js. -->
+    <wa-dialog id="dialog" light-dismiss></wa-dialog>
+    <wa-dialog id="ask-dialog" light-dismiss>
+      <span slot="label" class="ask-title"><span class="ask-icon"><wa-icon id="ask-icon" name="circle-question"></wa-icon></span><span id="ask-title"></span></span>
+      <p class="ask-text" id="ask-text"></p>
+      <wa-button slot="footer" appearance="plain" data-dialog="close">Cancelar</wa-button>
+      <wa-button slot="footer" variant="brand" id="ask-yes"></wa-button>
+    </wa-dialog>
+    <div id="toast" role="status" hidden></div>
+
+    <script type="module" src="app.js"></script>
   </body>
 </html>

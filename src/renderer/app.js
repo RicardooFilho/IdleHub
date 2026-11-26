@@ -1,4 +1,6 @@
-'use strict';
+// Interface do IdleHub: barra de jogos, mosaico de contas, Painel (IdleLive) e janelas.
+// Segue o DESIGN.md. As contas dos jogos são desenhadas pelo app POR CIMA desta página, nos espaços
+// [data-live]; por isso, com uma janela aberta, as contas são escondidas (sendLayout manda lista vazia).
 const api = window.idle;
 
 const S = {
@@ -7,9 +9,9 @@ const S = {
   runtime: { accounts: {}, log: [] },
   totalMem: 0,
   view: loadView(), // panel | all | game | focus
-  modal: null,
+  modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log', draft }
+  asking: false,
   version: '',
-  dataPath: '',
   openAtLogin: false,
   seenLog: 0,
   idlelive: { status: 'stopped', logs: [] },
@@ -30,14 +32,6 @@ function saveView() {
   } catch {}
 }
 
-const IDLELIVE_STATUS = {
-  running: 'Rodando',
-  starting: 'Abrindo…',
-  'port-busy': 'Aberto fora do IdleHub',
-  crashed: 'Parou, reabrindo…',
-  stopped: 'Parado',
-};
-
 const STATUS = {
   ok: 'Rodando',
   loading: 'Carregando',
@@ -49,16 +43,27 @@ const STATUS = {
   'no-url': 'Sem link',
 };
 const ISSUES = new Set(['unresponsive', 'crashed', 'logged-out', 'offline']);
+const IDLELIVE_STATUS = {
+  running: 'Rodando',
+  starting: 'Abrindo…',
+  'port-busy': 'Aberto fora do IdleHub',
+  crashed: 'Parou, abrindo de novo…',
+  stopped: 'Parado',
+};
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const clone = (o) => JSON.parse(JSON.stringify(o));
+const fmt = (n) => n.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 const fmtMem = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1).replace('.', ',') + ' GB' : Math.round(mb) + ' MB');
-const fmtVal = (v) => (typeof v === 'number' ? v.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : v ? 'sim' : '—');
 const keyOf = (g, a) => `${g.id}:${a.id}`;
 const gameById = (id) => S.config.games.find((g) => g.id === id);
+const icon = (name, label = '') => `<wa-icon name="${name}"${label ? ` label="${esc(label)}"` : ''}></wa-icon>`;
+// Botão só com ícone: label (leitor de tela) + title (dica), como pede o DESIGN.md.
+const iconBtn = (action, name, title, extra = '') =>
+  `<wa-button appearance="plain" size="s" data-action="${action}" title="${esc(title)}" ${extra}>${icon(name, title)}</wa-button>`;
 
 function rtOf(key, a) {
   return S.runtime.accounts[key] || { status: a?.sleeping ? 'sleeping' : 'loading', live: false, mem: 0, values: {}, trig: {} };
@@ -85,6 +90,47 @@ function scope() {
   return out;
 }
 
+// ---------------------------------------------------------------- respostas e confirmações
+
+// type: 'error' (vermelho) ou 'info' (deu certo, dicas).
+function toast(msg, type = 'error') {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.toggle('info', type === 'info');
+  el.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (el.hidden = true), 4000);
+}
+
+// Confirmação própria, no lugar do confirm() do navegador. Responde true só no botão de confirmar.
+// danger = ícone de aviso (não dá para desfazer). ok = verbo da ação ("Remover", não "OK").
+let askDone = null;
+function ask({ title, text, ok = 'Confirmar', danger = false }) {
+  askDone?.(false);
+  const d = $('#ask-dialog');
+  $('#ask-title').textContent = title;
+  $('#ask-text').textContent = text;
+  $('#ask-icon').name = danger ? 'triangle-exclamation' : 'circle-question';
+  $('#ask-yes').textContent = ok;
+  S.asking = true;
+  scheduleLayout();
+  d.open = true;
+  return new Promise((resolve) => {
+    askDone = (answer) => {
+      askDone = null;
+      d.open = false;
+      resolve(answer);
+    };
+  });
+}
+$('#ask-yes').addEventListener('click', () => askDone?.(true));
+$('#ask-dialog').addEventListener('wa-hide', (e) => e.target === e.currentTarget && askDone?.(false));
+$('#ask-dialog').addEventListener('wa-after-hide', (e) => {
+  if (e.target !== e.currentTarget) return;
+  S.asking = false;
+  scheduleLayout();
+});
+
 // ---------------------------------------------------------------- render
 function render() {
   if (S.view.kind === 'game' && !gameById(S.view.gameId)) S.view = { kind: 'all' };
@@ -98,19 +144,21 @@ function render() {
 
 function renderRail() {
   const v = S.view;
-  let h = `<button class="rail-btn panel-btn ${v.kind === 'panel' ? 'active' : ''}" data-act="view-panel" title="Painel (IdleLive): pontos da Twitch e da Kick">
-      <img src="icon.png" alt="" /><span class="count" data-panel-status hidden></span></button>
-    <button class="rail-btn ${v.kind === 'all' ? 'active' : ''}" data-act="view-all" title="Todas as contas">▦</button>
+  let h = `
+    <button class="rail-btn ${v.kind === 'panel' ? 'active' : ''}" data-action="view-panel" title="Painel: pontos da Twitch e da Kick (IdleLive)">
+      <img src="icon.png" alt="Painel" /><wa-badge class="count" variant="danger" pill data-panel-status hidden>!</wa-badge></button>
+    <button class="rail-btn ${v.kind === 'all' ? 'active' : ''}" data-action="view-all" title="Todas as contas">${icon('table-cells-large', 'Todas as contas')}</button>
     <div class="rail-sep"></div>`;
   for (const g of S.config.games) {
     const active = (v.kind === 'game' || v.kind === 'focus') && v.gameId === g.id;
-    h += `<button class="rail-btn ${active ? 'active' : ''}" data-act="view-game" data-id="${g.id}" title="${esc(g.name)}" style="color:${g.color}">
-      ${esc(g.short)}<span class="count" data-rail-count="${g.id}"></span></button>`;
+    // A cor do jogo vem da configuração dele (escolhida pelo jogador).
+    h += `<button class="rail-btn ${active ? 'active' : ''}" data-action="view-game" data-id="${g.id}" title="${esc(g.name)}" style="color:${g.color}">
+      ${esc(g.short)}<wa-badge class="count" pill data-rail-count="${g.id}"></wa-badge></button>`;
   }
-  h += `<button class="rail-btn ghost" data-act="add-game" title="Adicionar jogo">+</button>
+  h += `<button class="rail-btn add" data-action="add-game" title="Adicionar jogo">${icon('plus', 'Adicionar jogo')}</button>
     <div class="rail-spacer"></div>
-    <button class="rail-btn icon" data-act="open-log" title="Atividade e alertas">🔔<span class="count" data-log-count hidden></span></button>
-    <button class="rail-btn icon" data-act="open-settings" title="Configurações">⚙</button>`;
+    <button class="rail-btn" data-action="open-log" title="Atividade: recargas, logouts e alertas">${icon('bell', 'Atividade')}<wa-badge class="count" variant="danger" pill data-log-count hidden></wa-badge></button>
+    <button class="rail-btn" data-action="open-settings" title="Configurações">${icon('gear', 'Configurações')}</button>`;
   $('#rail').innerHTML = h;
   updateRail();
 }
@@ -119,36 +167,38 @@ function renderTop() {
   const v = S.view;
   let title = 'Todas as contas';
   let actions = '';
+  const btn = (action, name, text, attrs = '') =>
+    `<wa-button size="s" variant="brand" appearance="outlined" data-action="${action}" ${attrs}>${icon(name).replace('<wa-icon', '<wa-icon slot="start"')}${text}</wa-button>`;
   if (v.kind === 'panel') {
     title = 'Painel';
     actions = `
-      <button class="btn" data-act="panel-reload" title="Recarrega a página do painel">⟳ Recarregar página</button>
-      <button class="btn" data-act="panel-browser" title="Abre o painel no navegador do PC">↗ Abrir no navegador</button>`;
+      ${btn('panel-reload', 'rotate-right', 'Recarregar página')}
+      <wa-button size="s" appearance="plain" data-action="panel-browser">Abrir no navegador<wa-icon slot="end" name="arrow-up-right-from-square"></wa-icon></wa-button>`;
   } else if (v.kind === 'all' || v.kind === 'game') {
     const gid = v.kind === 'game' ? v.gameId : '';
     if (v.kind === 'game') title = esc(gameById(gid).name);
     actions = `
-      <button class="btn" data-act="game-wake" data-id="${gid}">☀ Acordar todas</button>
-      <button class="btn" data-act="game-sleep" data-id="${gid}">💤 Dormir todas</button>
-      <button class="btn" data-act="game-reload" data-id="${gid}">⟳ Recarregar todas</button>
-      ${v.kind === 'game' ? `<button class="btn" data-act="edit-game" data-id="${gid}">✎ Editar jogo</button>` : ''}`;
+      ${btn('game-wake', 'sun', 'Acordar todas', `data-id="${gid}"`)}
+      ${btn('game-sleep', 'moon', 'Dormir todas', `data-id="${gid}"`)}
+      ${btn('game-reload', 'rotate-right', 'Recarregar todas', `data-id="${gid}"`)}
+      ${v.kind === 'game' ? `<wa-button size="s" appearance="plain" data-action="edit-game" data-id="${gid}"><wa-icon slot="start" name="pen"></wa-icon>Editar jogo</wa-button>` : ''}`;
   } else {
     const it = scope()[0];
-    title = `<span style="color:${it.g.color}">${esc(it.g.name)}</span> · ${esc(it.a.name)}`;
+    title = `<span class="game-badge" style="background:${it.g.color}">${esc(it.g.short)}</span>${esc(it.a.name)}`;
     actions = `
-      <button class="btn" data-act="back">← Voltar</button>
-      <button class="btn" data-act="home" data-key="${it.key}" title="Volta para o link inicial do jogo">⌂ Início</button>
-      <button class="btn" data-act="reload" data-key="${it.key}">⟳ Recarregar</button>
-      <button class="btn" data-act="devtools" data-key="${it.key}" title="Abre as ferramentas do Chrome para achar seletores de alertas">🔍 Inspecionar</button>
-      <button class="btn" data-act="sleep" data-key="${it.key}">💤 Dormir</button>`;
+      <wa-button size="s" appearance="plain" data-action="back"><wa-icon slot="start" name="arrow-left"></wa-icon>Voltar</wa-button>
+      ${btn('home', 'house', 'Início', `data-key="${it.key}" title="Volta para o link inicial do jogo"`)}
+      ${btn('reload', 'rotate-right', 'Recarregar', `data-key="${it.key}"`)}
+      ${btn('devtools', 'magnifying-glass', 'Inspecionar', `data-key="${it.key}" title="Abre as ferramentas do Chrome para achar o seletor de um alerta"`)}
+      ${btn('sleep', 'moon', 'Dormir', `data-key="${it.key}"`)}`;
   }
   $('#top').innerHTML = `<h1>${title}</h1><div class="stats" id="stats"></div><div class="top-actions">${actions}</div>`;
   updateStats();
 }
 
 function bestCols(n, W, H) {
-  const gap = 10;
-  const head = 30;
+  const gap = 12;
+  const head = 36;
   let best = 1;
   let bestW = -1;
   for (let cols = 1; cols <= n; cols++) {
@@ -167,18 +217,22 @@ function bestCols(n, W, H) {
 function renderContent() {
   const c = $('#content');
   if (S.view.kind === 'panel') return renderPanel(c);
+  delete c.dataset.panelMode;
   const list = scope();
   if (!S.config.games.length || !list.length) {
     c.style.gridTemplateColumns = '1fr';
     c.style.gridTemplateRows = '1fr';
-    c.innerHTML = `<div class="empty"><h2>Nenhuma conta por aqui</h2>
-      <div>Adicione um jogo para começar.</div>
-      <button class="btn primary" data-act="add-game">+ Adicionar jogo</button></div>`;
+    c.innerHTML = `<div class="empty">${icon('gamepad')}<h2>Nenhuma conta por aqui</h2>
+      <p>Adicione um jogo no botão <b>+</b> da barra lateral.</p>
+      <wa-button variant="brand" data-action="add-game"><wa-icon slot="start" name="plus"></wa-icon>Adicionar jogo</wa-button></div>`;
     scheduleLayout();
     return;
   }
   const focus = S.view.kind === 'focus';
-  const cols = focus ? 1 : bestCols(list.length, c.clientWidth - 20, c.clientHeight - 20);
+  const cs = getComputedStyle(c);
+  const W = c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const H = c.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const cols = focus ? 1 : bestCols(list.length, W, H);
   const rows = Math.ceil(list.length / cols);
   c.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
   c.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
@@ -197,24 +251,23 @@ function renderPanel(c) {
   c.style.gridTemplateRows = '1fr';
   const mode = panelMode();
   if (mode === 'live') {
-    c.innerHTML = `<div class="panel-host" data-panel data-mode="live"></div>`;
+    c.innerHTML = `<div class="panel-host" data-panel></div>`;
   } else {
     const msg = {
-      starting: ['⏳', 'Abrindo o painel…', ''],
+      starting: ['hourglass-half', 'Abrindo o Painel…', ''],
       'port-busy': [
-        '🪟',
+        'window-restore',
         'O IdleLive já está aberto fora do IdleHub',
-        'Feche a janela preta do IdleLive (iniciar.bat). O painel abre aqui sozinho em alguns segundos. Os dois juntos não podem rodar: as contas cairiam.',
+        'Feche a janela preta do IdleLive (iniciar.bat). O Painel abre aqui sozinho em alguns segundos. Os dois juntos não podem rodar: as contas da Twitch cairiam.',
       ],
-      crashed: ['⚠️', 'O painel parou. Abrindo de novo…', ''],
-      stopped: ['⏸', 'Painel parado', ''],
-    }[mode] || ['⏳', 'Abrindo o painel…', ''];
+      crashed: ['triangle-exclamation', 'O Painel parou. Abrindo de novo…', ''],
+      stopped: ['power-off', 'O Painel está parado', 'Clique em Abrir de novo para ligar.'],
+    }[mode] || ['hourglass-half', 'Abrindo o Painel…', ''];
     const logs = S.idlelive.logs?.slice(-6) || [];
-    c.innerHTML = `<div class="empty" data-panel-mode="${esc(mode)}">
-      <div style="font-size:34px">${msg[0]}</div><h2>${esc(msg[1])}</h2>
-      ${msg[2] ? `<div style="max-width:520px">${esc(msg[2])}</div>` : ''}
+    c.innerHTML = `<div class="empty">${icon(msg[0])}<h2>${esc(msg[1])}</h2>
+      ${msg[2] ? `<p>${esc(msg[2])}</p>` : ''}
       ${mode === 'crashed' && logs.length ? `<pre class="panel-log">${esc(logs.join('\n'))}</pre>` : ''}
-      ${mode === 'crashed' || mode === 'stopped' ? `<button class="btn" data-act="panel-restart">⟳ Abrir de novo</button>` : ''}
+      ${mode === 'crashed' || mode === 'stopped' ? `<wa-button variant="brand" appearance="outlined" data-action="panel-restart"><wa-icon slot="start" name="rotate-right"></wa-icon>Abrir de novo</wa-button>` : ''}
     </div>`;
   }
   c.dataset.panelMode = mode;
@@ -229,27 +282,27 @@ function tileHtml({ g, a, key }) {
   let body;
   if (mode === 'live') body = `<div class="tile-body" data-live="${key}"></div>`;
   else if (mode === 'sleep')
-    body = `<div class="tile-body"><div class="tile-placeholder"><div class="big">💤</div><div>Conta dormindo, sem gastar memória.</div>
-      <button class="btn" data-act="wake">☀ Acordar</button></div></div>`;
+    body = `<div class="tile-body"><div class="empty">${icon('moon')}<h2>Conta dormindo</h2><p>Não gasta memória. O login continua salvo.</p>
+      <wa-button size="s" variant="brand" appearance="outlined" data-action="wake"><wa-icon slot="start" name="sun"></wa-icon>Acordar</wa-button></div></div>`;
   else
-    body = `<div class="tile-body"><div class="tile-placeholder"><div class="big">🔗</div><div>Falta o link do ${esc(g.name)}.</div>
-      <button class="btn primary" data-act="edit-game" data-id="${g.id}">Adicionar link</button></div></div>`;
+    body = `<div class="tile-body"><div class="empty">${icon('link')}<h2>Falta o link do ${esc(g.name)}</h2>
+      <wa-button size="s" variant="brand" data-action="edit-game" data-id="${g.id}"><wa-icon slot="start" name="plus"></wa-icon>Adicionar link</wa-button></div></div>`;
 
   return `<div class="tile" data-key="${key}" data-mode="${mode}">
     <div class="tile-head" title="Clique duas vezes para expandir">
       <span class="dot" data-dot></span>
-      ${showBadge ? `<span class="badge" style="background:${g.color}">${esc(g.short)}</span>` : ''}
+      ${showBadge ? `<span class="game-badge" style="background:${g.color}">${esc(g.short)}</span>` : ''}
       <span class="tile-name">${esc(a.name)}</span>
       <span class="tile-status" data-status></span>
       <span class="vals" data-vals></span>
-      <span class="mem" data-mem></span>
+      <span class="meta num tile-mem" data-mem></span>
       ${
         focus
           ? ''
           : `<div class="tile-actions">
-        <button class="ic" data-act="focus" title="Expandir">⤢</button>
-        <button class="ic" data-act="reload" title="Recarregar">⟳</button>
-        ${mode === 'sleep' ? `<button class="ic" data-act="wake" title="Acordar">☀</button>` : `<button class="ic" data-act="sleep" title="Dormir (libera memória)">💤</button>`}
+        ${iconBtn('focus', 'expand', 'Expandir')}
+        ${iconBtn('reload', 'rotate-right', 'Recarregar')}
+        ${mode === 'sleep' ? iconBtn('wake', 'sun', 'Acordar') : iconBtn('sleep', 'moon', 'Dormir (libera memória)')}
       </div>`
       }
     </div>
@@ -264,7 +317,7 @@ function updateRuntime() {
   } else if (refreshTiles()) renderContent();
   updateStats();
   updateRail();
-  if (S.modal?.kind === 'log') renderModal();
+  if (S.modal?.kind === 'log') renderModalBody();
 }
 
 // Atualiza bolinha, status, memória e valores de cada conta. Retorna true se
@@ -289,42 +342,47 @@ function refreshTiles() {
     stEl.title = r.lastEvent || '';
     $('[data-mem]', el).textContent = r.mem ? fmtMem(r.mem) : '';
     const ws = (g.watchers || []).filter((w) => w.enabled);
-    $('[data-vals]', el).innerHTML = ws
+    const vals = ws
       .map((w) => {
         const v = r.values?.[w.id];
         const hit = !!r.trig?.[w.id];
-        if (w.kind === 'text') return hit ? `<span class="val hit">⚑ ${esc(w.name)}</span>` : '';
+        if (w.kind === 'text') return hit ? `<wa-badge variant="warning" pill>${esc(w.name)}</wa-badge>` : '';
         if (v == null) return '';
-        return `<span class="val ${hit ? 'hit' : ''}" title="${esc(w.name)}">${esc(w.name)} ${fmtVal(v)}</span>`;
+        return `<wa-badge class="num" variant="${hit ? 'warning' : 'neutral'}" appearance="${hit ? 'accent' : 'outlined'}" pill title="${esc(w.name)}">${esc(w.name)} ${fmt(v)}</wa-badge>`;
       })
       .join('');
+    const valsEl = $('[data-vals]', el);
+    if (valsEl._html !== vals) valsEl.innerHTML = valsEl._html = vals;
     el.classList.toggle('alerting', Object.values(r.trig || {}).some(Boolean));
   }
   return needRender;
 }
 
+const chip = (html, attrs = '') => `<wa-badge variant="neutral" appearance="outlined" pill ${attrs}>${html}</wa-badge>`;
+
 function updateStats() {
   const el = $('#stats');
   if (!el) return;
-  if (S.view.kind === 'panel') return updatePanelStats(el);
-  const list = scope();
-  let running = 0, sleeping = 0, issues = 0, mem = 0;
-  for (const { a, key } of list) {
-    const r = rtOf(key, a);
-    if (a.sleeping) sleeping++;
-    else if (r.live) running++;
-    if (ISSUES.has(r.status)) issues++;
-    mem += r.mem || 0;
+  let html;
+  if (S.view.kind === 'panel') html = panelStats();
+  else {
+    let running = 0, sleeping = 0, issues = 0, mem = 0;
+    for (const { a, key } of scope()) {
+      const r = rtOf(key, a);
+      if (a.sleeping) sleeping++;
+      else if (r.live) running++;
+      if (ISSUES.has(r.status)) issues++;
+      mem += r.mem || 0;
+    }
+    html = `${chip(`<b class="num">${running}</b>&nbsp;rodando`)}${chip(`<b class="num">${sleeping}</b>&nbsp;dormindo`)}
+      ${issues ? `<wa-badge variant="warning" pill><b class="num">${issues}</b>&nbsp;com problema</wa-badge>` : ''}
+      ${chip(`RAM&nbsp;<b class="num">${fmtMem(mem)}</b>&nbsp;· app ${fmtMem(S.totalMem)}`, 'title="Memória das contas mostradas · total do app"')}`;
   }
-  el.innerHTML = `
-    <span class="chip"><b>${running}</b> rodando</span>
-    <span class="chip"><b>${sleeping}</b> dormindo</span>
-    ${issues ? `<span class="chip" style="border-color:var(--warn)"><b style="color:var(--warn)">${issues}</b> com problema</span>` : ''}
-    <span class="chip" title="Memória das contas mostradas · total do painel">RAM <b>${fmtMem(mem)}</b> · painel ${fmtMem(S.totalMem)}</span>`;
+  if (el._html !== html) el.innerHTML = el._html = html;
 }
 
 // No Painel: status do IdleLive e quantas contas dos jogos seguem rodando por trás.
-function updatePanelStats(el) {
+function panelStats() {
   let running = 0, total = 0;
   for (const g of S.config.games)
     for (const a of g.accounts) {
@@ -332,21 +390,15 @@ function updatePanelStats(el) {
       if (!a.sleeping && rtOf(keyOf(g, a), a).live) running++;
     }
   const st = S.idlelive.status;
-  const color = st === 'running' ? 'var(--ok)' : st === 'port-busy' || st === 'crashed' ? 'var(--warn)' : 'var(--muted)';
-  el.innerHTML = `
-    <span class="chip">IdleLive <b style="color:${color}">${esc(IDLELIVE_STATUS[st] || st)}</b></span>
-    ${total ? `<span class="chip" title="As contas dos jogos continuam rodando enquanto você vê o painel">🎮 <b>${running}</b>/${total} contas rodando em segundo plano</span>` : ''}
-    <span class="chip">RAM do app <b>${fmtMem(S.totalMem)}</b></span>`;
+  const variant = st === 'running' ? 'success' : st === 'port-busy' || st === 'crashed' ? 'warning' : 'neutral';
+  return `<wa-badge variant="${variant}" pill>IdleLive: ${esc(IDLELIVE_STATUS[st] || st)}</wa-badge>
+    ${total ? chip(`${icon('gamepad')}&nbsp;<b class="num">${running}/${total}</b>&nbsp;contas rodando em segundo plano`, 'title="As contas dos jogos continuam rodando enquanto você usa o Painel"') : ''}
+    ${chip(`RAM do app&nbsp;<b class="num">${fmtMem(S.totalMem)}</b>`)}`;
 }
 
 function updateRail() {
   const ps = $('[data-panel-status]');
-  if (ps) {
-    const bad = S.idlelive.status === 'port-busy' || S.idlelive.status === 'crashed';
-    ps.hidden = !bad;
-    ps.textContent = '!';
-    ps.classList.toggle('alert', bad);
-  }
+  if (ps) ps.hidden = !(S.idlelive.status === 'port-busy' || S.idlelive.status === 'crashed');
   for (const g of S.config.games) {
     const el = $(`[data-rail-count="${g.id}"]`);
     if (!el) continue;
@@ -357,14 +409,13 @@ function updateRail() {
       if (ISSUES.has(r.status)) issues++;
     }
     el.textContent = issues || `${live}/${g.accounts.length}`;
-    el.classList.toggle('alert', issues > 0);
+    el.variant = issues ? 'danger' : 'neutral';
   }
   const alerts = S.runtime.log.filter((l) => l.level !== 'info' && l.t > S.seenLog).length;
   const lc = $('[data-log-count]');
   if (lc) {
     lc.hidden = !alerts;
     lc.textContent = alerts > 99 ? '99+' : alerts;
-    lc.classList.add('alert');
   }
 }
 
@@ -380,7 +431,8 @@ function scheduleLayout() {
 }
 
 function sendLayout() {
-  if (S.modal) return api.setLayout([]);
+  // Janela aberta: as contas (desenhadas por cima da página) se escondem para não cobrir a janela.
+  if (S.modal || S.asking) return api.setLayout([]);
   const base = S.config.settings.tileBaseWidth || 1280;
   const focus = S.view.kind === 'focus';
   const tiles = $$('[data-live]').map((el) => {
@@ -396,35 +448,63 @@ function sendLayout() {
   api.setLayout(tiles);
 }
 
-// ---------------------------------------------------------------- modais
+// ---------------------------------------------------------------- janelas
+const dlg = () => $('#dialog');
+
 function openModal(kind, draft) {
   S.modal = { kind, draft };
   renderModal();
 }
+
 function closeModal() {
+  if (S.modal?.kind === 'log') S.seenLog = Date.now();
   S.modal = null;
-  renderModal();
+  dlg().open = false;
+  updateRail();
 }
 
+const MODAL_TITLES = {
+  onboard: 'Bem-vindo ao IdleHub',
+  settings: 'Configurações',
+  log: 'Atividade',
+};
+
 function renderModal() {
-  const root = $('#modal-root');
-  const m = S.modal;
-  if (!m) {
-    root.innerHTML = '';
+  const d = dlg();
+  if (!S.modal) {
+    d.open = false;
     scheduleLayout();
     return;
   }
-  const scroll = $('.modal .body', root)?.scrollTop || 0;
+  const m = S.modal;
+  d.label = m.kind === 'game' ? (m.draft.id ? `Editar ${m.draft.name}` : 'Adicionar jogo') : MODAL_TITLES[m.kind];
+  // As boas-vindas só fecham pelo botão: sem jogos, o app fica vazio.
+  d.toggleAttribute('light-dismiss', m.kind !== 'onboard');
+  d.toggleAttribute('without-header', false);
+  renderModalBody();
+  scheduleLayout();
+  d.open = true;
+}
+
+function renderModalBody() {
+  const m = S.modal;
   const html =
     m.kind === 'onboard' ? onboardHtml(m.draft) :
     m.kind === 'game' ? gameHtml(m.draft) :
     m.kind === 'settings' ? settingsHtml(m.draft) :
     m.kind === 'log' ? logHtml() : '';
-  root.innerHTML = `<div class="backdrop"><div class="modal">${html}</div></div>`;
-  const body = $('.modal .body', root);
-  if (body) body.scrollTop = scroll;
-  scheduleLayout();
+  const d = dlg();
+  if (d._html !== html) d.innerHTML = d._html = html;
 }
+
+dlg().addEventListener('wa-hide', (e) => {
+  if (e.target !== e.currentTarget) return; // menus e seletores lá dentro também disparam wa-hide
+  if (S.modal?.kind === 'onboard') return e.preventDefault();
+  if (S.modal?.kind === 'log') S.seenLog = Date.now();
+  S.modal = null;
+  updateRail();
+});
+dlg().addEventListener('wa-after-hide', (e) => e.target === e.currentTarget && scheduleLayout());
 
 // ----- boas-vindas
 function onboardDraft() {
@@ -432,25 +512,26 @@ function onboardDraft() {
 }
 
 function onboardHtml(d) {
-  return `
-    <header><h2>Bem-vindo ao IdleHub 👋</h2>
-      <p>Escolha seus jogos e quantas contas de cada. Dá para mudar tudo depois.</p></header>
-    <div class="body">
+  return `<div class="form">
+      <p class="meta">Escolha seus jogos e quantas contas de cada. Dá para mudar tudo depois.</p>
+      <div class="form-block">
       ${d
         .map(
           (p, i) => `
-        <label class="pick ${p.on ? '' : 'off'}" data-i="${i}">
-          <input type="checkbox" data-f="on" ${p.on ? 'checked' : ''} />
-          <span style="display:flex;gap:8px;align-items:center"><span class="badge" style="background:${p.color}">${esc(p.short)}</span><b>${esc(p.name)}</b></span>
-          <span class="field"><span>Contas</span><input class="input" type="number" min="1" max="12" data-f="accounts" value="${p.accounts}" /></span>
-          <span class="field"><span>Link do jogo</span><input class="input" data-f="url" value="${esc(p.url)}" placeholder="Cole o link (ex.: https://...)" /></span>
-        </label>`
+        <div class="pick ${p.on ? '' : 'off'}" data-i="${i}">
+          <wa-checkbox data-f="on" ${p.on ? 'checked' : ''} title="Usar este jogo"></wa-checkbox>
+          <span class="pick-name"><span class="game-badge" style="background:${p.color}">${esc(p.short)}</span>${esc(p.name)}</span>
+          <wa-input size="s" type="number" min="1" max="12" label="Contas" data-f="accounts" value="${p.accounts}"></wa-input>
+          <wa-input size="s" label="Link do jogo" data-f="url" value="${esc(p.url)}" placeholder="https://…"></wa-input>
+        </div>`
         )
         .join('')}
-      <p class="hint">Cada conta abre separada, com o próprio login. Na primeira vez, expanda cada conta (⤢) e entre nela; depois o painel lembra.</p>
-      <p class="hint">Qualquer outro jogo de navegador pode ser adicionado pelo botão <b>+</b> na barra lateral.</p>
+      </div>
+      <wa-callout variant="neutral" size="s"><wa-icon slot="icon" name="circle-info"></wa-icon>
+        Cada conta abre separada, com o próprio login. Na primeira vez, expanda cada conta e entre nela; depois o IdleHub lembra.
+        Outros jogos de navegador entram pelo botão <b>+</b> da barra lateral.</wa-callout>
     </div>
-    <footer><button class="btn primary" data-act="onboard-done">Criar meu painel</button></footer>`;
+    <wa-button slot="footer" variant="brand" data-action="onboard-done">Criar meu painel</wa-button>`;
 }
 
 function collectOnboard() {
@@ -458,105 +539,108 @@ function collectOnboard() {
     const p = S.modal.draft[Number(row.dataset.i)];
     p.on = $('[data-f="on"]', row).checked;
     p.accounts = Math.max(1, Math.min(12, Number($('[data-f="accounts"]', row).value) || 1));
-    p.url = $('[data-f="url"]', row).value.trim();
+    p.url = String($('[data-f="url"]', row).value || '').trim();
   }
 }
 
 // ----- jogo (novo/editar)
 function blankGame() {
   return {
-    id: '', preset: null, name: '', short: '', color: '#8b5cf6', url: '',
+    id: '', preset: null, name: '', short: '', color: '#fc5e03', url: '',
     accounts: [{ id: '', name: 'Conta 1', sleeping: false }],
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
     watchers: [],
   };
 }
 
+const OPS = [['>=', '≥'], ['<=', '≤'], ['>', '>'], ['<', '<'], ['=', '='], ['change', 'mudou']];
+
 function gameHtml(d) {
   const isNew = !d.id;
-  const presetBtns = isNew
-    ? `<div class="section-title">Começar de um modelo</div><div class="row">
-        ${S.presets.map((p) => `<button class="btn" data-act="preset-fill" data-preset="${p.preset}"><span class="badge" style="background:${p.color}">${esc(p.short)}</span>${esc(p.name)}</button>`).join('')}
-       </div>`
-    : '';
-  const ops = [['>=', '≥'], ['<=', '≤'], ['>', '>'], ['<', '<'], ['=', '='], ['change', 'mudou']];
-  return `
-    <header><h2>${isNew ? 'Adicionar jogo' : 'Editar ' + esc(d.name)}</h2>
-      <p>Qualquer jogo idle de navegador funciona: basta o link.</p></header>
-    <div class="body">
-      ${presetBtns}
-      <div class="section-title">Jogo</div>
-      <div class="row">
-        <label class="field" style="flex:2"><span>Nome</span><input class="input" data-f="name" value="${esc(d.name)}" placeholder="Ex.: PokeIdle" /></label>
-        <label class="field" style="flex:0 0 90px;min-width:90px"><span>Sigla</span><input class="input" data-f="short" maxlength="4" value="${esc(d.short)}" placeholder="PK" /></label>
-        <label class="field" style="flex:0 0 60px;min-width:60px"><span>Cor</span><input class="input" type="color" data-f="color" value="${esc(d.color)}" /></label>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <label class="field"><span>Link do jogo</span><input class="input" data-f="url" value="${esc(d.url)}" placeholder="https://..." /></label>
-      </div>
-
-      <div class="section-title">Contas (${d.accounts.length}/12)</div>
-      ${d.accounts
-        .map(
-          (a, i) => `<div class="list-row acc-row" data-i="${i}">
-          <input class="input" data-f="acc-name" value="${esc(a.name)}" style="max-width:280px" />
-          <button class="ic" data-act="acc-del" data-i="${i}" title="Remover conta">✕</button></div>`
-        )
-        .join('')}
-      ${d.accounts.length < 12 ? `<button class="btn small" data-act="acc-add">+ Conta</button>` : ''}
-
-      <div class="section-title">Detectar quando a conta sai do login</div>
-      <div class="row">
-        <label class="field"><span>O link contém (separe por vírgula)</span><input class="input" data-f="lo-url" value="${esc(d.loggedOut.urlIncludes.join(', '))}" placeholder="login, signin" /></label>
-        <label class="field"><span>A página mostra o texto</span><input class="input" data-f="lo-text" value="${esc(d.loggedOut.textIncludes.join(', '))}" placeholder="Entrar, Faça login" /></label>
-      </div>
-
-      <div class="section-title">Alertas</div>
-      <p class="hint"><b>Texto</b>: avisa quando a palavra aparecer na página (ex.: <code>shiny</code>).
-        <b>Número</b>: lê um valor e avisa pela condição. Use um <b>seletor CSS</b> (botão 🔍 Inspecionar numa conta expandida → clique direito no valor → Copy selector)
-        e/ou uma <b>regex</b> com um grupo, ex.: <code>Ouro:\\s*([\\d.,]+[kKmM]?)</code>.</p>
+  return `<div class="form">
       ${
-        d.watchers.length
-          ? `<div class="watch-row watch-head"><span></span><span>Nome</span><span>Tipo</span><span>Seletor CSS (opcional)</span><span>Texto / regex</span><span>Condição</span><span>Valor</span><span></span></div>`
+        isNew
+          ? `<div class="form-block"><span class="form-label">Começar de um modelo</span><div class="presets">
+        ${S.presets.map((p) => `<wa-button size="s" appearance="outlined" variant="brand" data-action="preset-fill" data-preset="${p.preset}"><span class="game-badge" slot="start" style="background:${p.color}">${esc(p.short)}</span>${esc(p.name)}</wa-button>`).join('')}
+       </div></div>`
           : ''
       }
-      ${d.watchers
-        .map(
-          (w, i) => `<div class="watch-row" data-i="${i}">
-          <input type="checkbox" data-f="w-enabled" ${w.enabled ? 'checked' : ''} title="Ligado" />
-          <input class="input" data-f="w-name" value="${esc(w.name)}" placeholder="Nome" />
-          <select class="input" data-f="w-kind"><option value="text" ${w.kind === 'text' ? 'selected' : ''}>Texto</option><option value="number" ${w.kind === 'number' ? 'selected' : ''}>Número</option></select>
-          <input class="input" data-f="w-selector" value="${esc(w.selector)}" placeholder="#gold" />
-          <input class="input" data-f="w-pattern" value="${esc(w.pattern)}" placeholder="${w.kind === 'text' ? 'shiny' : 'regex (opcional)'}" />
-          <select class="input" data-f="w-op" ${w.kind === 'text' ? 'disabled' : ''}>${ops.map(([v, l]) => `<option value="${v}" ${w.op === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-          <input class="input" type="number" data-f="w-value" value="${esc(w.value)}" ${w.kind === 'text' || w.op === 'change' ? 'disabled' : ''} />
-          <button class="ic" data-act="w-del" data-i="${i}" title="Remover alerta">✕</button>
-        </div>`
-        )
-        .join('')}
-      <button class="btn small" data-act="w-add">+ Alerta</button>
-      <div style="height:12px"></div>
+      <div class="form-block">
+        <span class="form-label">Jogo</span>
+        <div class="form-row">
+          <wa-input label="Nome" data-f="name" value="${esc(d.name)}" placeholder="Ex.: PokeIdle"></wa-input>
+          <wa-input class="narrow" label="Sigla" data-f="short" maxlength="4" value="${esc(d.short)}" placeholder="PK"></wa-input>
+          <wa-color-picker class="narrow" label="Cor" data-f="color" value="${esc(d.color)}"></wa-color-picker>
+        </div>
+        <wa-input label="Link do jogo" data-f="url" value="${esc(d.url)}" placeholder="https://…" hint="Qualquer jogo idle de navegador funciona: basta o link."></wa-input>
+      </div>
+
+      <div class="form-block">
+        <span class="form-label">Contas (${d.accounts.length}/12)</span>
+        ${d.accounts
+          .map(
+            (a, i) => `<div class="acc-row" data-i="${i}">
+            <wa-input size="s" data-f="acc-name" value="${esc(a.name)}" aria-label="Nome da conta"></wa-input>
+            ${iconBtn('acc-del', 'trash', 'Remover conta', `data-i="${i}"`)}</div>`
+          )
+          .join('')}
+        ${d.accounts.length < 12 ? `<div><wa-button size="s" variant="brand" appearance="outlined" data-action="acc-add"><wa-icon slot="start" name="plus"></wa-icon>Adicionar conta</wa-button></div>` : ''}
+      </div>
+
+      <div class="form-block">
+        <span class="form-label">Saber quando a conta sai do login</span>
+        <div class="form-row">
+          <wa-input size="s" label="O link contém" hint="Separe por vírgula. Ex.: login, signin" data-f="lo-url" value="${esc(d.loggedOut.urlIncludes.join(', '))}"></wa-input>
+          <wa-input size="s" label="A página mostra o texto" hint="Ex.: Entrar, Faça login" data-f="lo-text" value="${esc(d.loggedOut.textIncludes.join(', '))}"></wa-input>
+        </div>
+      </div>
+
+      <div class="form-block">
+        <span class="form-label">Alertas</span>
+        <p class="meta"><b>Texto</b>: avisa quando a palavra aparece na página (ex.: <code>shiny</code>).
+          <b>Número</b>: lê um valor e avisa pela condição. Para achar o valor, expanda uma conta, clique em <b>Inspecionar</b>,
+          clique com o botão direito no valor → <b>Copy selector</b>, e cole em Seletor CSS. Também dá para usar uma regex com um grupo,
+          ex.: <code>Ouro:\\s*([\\d.,]+[kKmM]?)</code>.</p>
+        ${
+          d.watchers.length
+            ? `<div class="watch-row watch-head"><span></span><span>Nome</span><span>Tipo</span><span>Seletor CSS (opcional)</span><span>Texto ou regex</span><span>Condição</span><span>Valor</span><span></span></div>`
+            : ''
+        }
+        ${d.watchers
+          .map(
+            (w, i) => `<div class="watch-row" data-i="${i}">
+            <wa-checkbox data-f="w-enabled" ${w.enabled ? 'checked' : ''} title="Ligado"></wa-checkbox>
+            <wa-input size="s" data-f="w-name" value="${esc(w.name)}" aria-label="Nome"></wa-input>
+            <wa-select size="s" data-f="w-kind" value="${w.kind}" aria-label="Tipo"><wa-option value="text">Texto</wa-option><wa-option value="number">Número</wa-option></wa-select>
+            <wa-input size="s" data-f="w-selector" value="${esc(w.selector)}" placeholder="#gold" aria-label="Seletor CSS"></wa-input>
+            <wa-input size="s" data-f="w-pattern" value="${esc(w.pattern)}" placeholder="${w.kind === 'text' ? 'shiny' : 'regex (opcional)'}" aria-label="Texto ou regex"></wa-input>
+            <wa-select size="s" data-f="w-op" value="${w.op}" aria-label="Condição" ${w.kind === 'text' ? 'disabled' : ''}>${OPS.map(([v, l]) => `<wa-option value="${v}">${l}</wa-option>`).join('')}</wa-select>
+            <wa-input size="s" type="number" data-f="w-value" value="${esc(w.value)}" aria-label="Valor" ${w.kind === 'text' || w.op === 'change' ? 'disabled' : ''}></wa-input>
+            ${iconBtn('w-del', 'trash', 'Remover alerta', `data-i="${i}"`)}
+          </div>`
+          )
+          .join('')}
+        <div><wa-button size="s" variant="brand" appearance="outlined" data-action="w-add"><wa-icon slot="start" name="plus"></wa-icon>Adicionar alerta</wa-button></div>
+      </div>
     </div>
-    <footer>
-      ${isNew ? '' : `<button class="btn danger left" data-act="game-delete">Excluir jogo</button>`}
-      <button class="btn" data-act="modal-close">Cancelar</button>
-      <button class="btn primary" data-act="game-save">${isNew ? 'Adicionar' : 'Salvar'}</button>
-    </footer>`;
+    ${isNew ? '' : `<wa-button slot="footer" appearance="plain" data-action="game-delete" style="margin-right:auto"><wa-icon slot="start" name="trash"></wa-icon>Excluir jogo</wa-button>`}
+    <wa-button slot="footer" appearance="plain" data-dialog="close">Cancelar</wa-button>
+    <wa-button slot="footer" variant="brand" data-action="game-save">${isNew ? 'Adicionar jogo' : 'Salvar'}</wa-button>`;
 }
 
 function collectGame() {
   const d = S.modal.draft;
-  const v = (f) => $(`[data-f="${f}"]`)?.value ?? '';
+  const v = (f) => String($(`#dialog [data-f="${f}"]`)?.value ?? '');
   d.name = v('name').trim();
   d.short = v('short').trim();
-  d.color = v('color');
+  d.color = v('color') || d.color;
   d.url = v('url').trim();
   d.loggedOut = {
     urlIncludes: v('lo-url').split(',').map((s) => s.trim()).filter(Boolean),
     textIncludes: v('lo-text').split(',').map((s) => s.trim()).filter(Boolean),
   };
-  for (const row of $$('.acc-row')) d.accounts[Number(row.dataset.i)].name = $('[data-f="acc-name"]', row).value;
-  for (const row of $$('.watch-row[data-i]')) {
+  for (const row of $$('#dialog .acc-row')) d.accounts[Number(row.dataset.i)].name = $('[data-f="acc-name"]', row).value;
+  for (const row of $$('#dialog .watch-row[data-i]')) {
     const w = d.watchers[Number(row.dataset.i)];
     const f = (n) => $(`[data-f="${n}"]`, row);
     w.enabled = f('w-enabled').checked;
@@ -572,61 +656,65 @@ function collectGame() {
 // ----- configurações
 function settingsHtml(d) {
   const num = (f, label, hint, min, max) =>
-    `<label class="field"><span>${label}</span><input class="input" type="number" min="${min}" max="${max}" data-f="${f}" value="${esc(d[f])}" />${hint ? `<span class="hint" style="margin:0">${hint}</span>` : ''}</label>`;
-  const chk = (f, label) => `<label class="check"><input type="checkbox" data-f="${f}" ${d[f] ? 'checked' : ''} /> ${label}</label>`;
-  return `
-    <header><h2>Configurações</h2><p>Valem para todos os jogos.</p></header>
-    <div class="body">
-      <div class="section-title">Watchdog</div>
-      <div class="row">
-        ${num('watchdogIntervalSec', 'Verificar cada conta a cada (s)', '', 10, 600)}
-        ${num('reloadAfterFailures', 'Recarregar após quantas falhas seguidas', '', 1, 10)}
-        ${num('memoryLimitMB', 'Recarregar se a conta passar de (MB)', '0 = sem limite', 0, 16000)}
+    `<wa-input size="s" type="number" min="${min}" max="${max}" label="${esc(label)}" ${hint ? `hint="${esc(hint)}"` : ''} data-f="${f}" value="${esc(d[f])}"></wa-input>`;
+  const sw = (f, label, hint = '') => `<wa-switch data-f="${f}" ${d[f] ? 'checked' : ''} ${hint ? `hint="${esc(hint)}"` : ''}>${esc(label)}</wa-switch>`;
+  return `<div class="form">
+      <div class="form-block">
+        <span class="form-label">Watchdog</span>
+        <div class="form-row">
+          ${num('watchdogIntervalSec', 'Verificar cada conta a cada (s)', '', 10, 600)}
+          ${num('reloadAfterFailures', 'Recarregar após quantas falhas seguidas', '', 1, 10)}
+          ${num('memoryLimitMB', 'Recarregar se a conta passar de (MB)', '0 = sem limite', 0, 16000)}
+        </div>
       </div>
-      <div class="section-title">Desempenho</div>
-      <div class="row">
-        ${num('backgroundFps', 'FPS das contas escondidas', '0 = sem limite. Menos FPS = menos CPU/GPU.', 0, 144)}
-        ${num('mosaicFps', 'FPS das contas no mosaico', '0 = sem limite. A conta expandida não tem limite.', 0, 144)}
-        ${num('tileBaseWidth', 'Largura de referência do jogo (px)', 'O mosaico encolhe o jogo a partir dela.', 480, 3840)}
+      <div class="form-block">
+        <span class="form-label">Desempenho</span>
+        <div class="form-row">
+          ${num('backgroundFps', 'FPS das contas escondidas', '0 = sem limite. Só limita a animação: o jogo segue rodando.', 0, 144)}
+          ${num('mosaicFps', 'FPS das contas no mosaico', '0 = sem limite. A conta expandida não tem limite.', 0, 144)}
+          ${num('tileBaseWidth', 'Largura de referência do jogo (px)', 'O mosaico encolhe o jogo a partir dela.', 480, 3840)}
+        </div>
       </div>
-      <div class="section-title">Comportamento</div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        ${chk('muteAll', 'Deixar todas as contas sem som (desmarcado: só a conta expandida toca som)')}
-        ${chk('notifyWindows', 'Mostrar notificações do Windows')}
-        ${chk('closeToTray', 'Ao fechar a janela, continuar rodando perto do relógio')}
-        ${chk('openAtLogin', 'Abrir junto com o Windows')}
-        ${chk('startMinimized', 'Começar minimizado (só o ícone perto do relógio)')}
+      <div class="form-block">
+        <span class="form-label">Comportamento</span>
+        ${sw('muteAll', 'Deixar todas as contas sem som', 'Desligado: só a conta expandida toca som.')}
+        ${sw('notifyWindows', 'Mostrar notificações do Windows')}
+        ${sw('closeToTray', 'Continuar rodando ao fechar a janela', 'O IdleHub fica no ícone perto do relógio.')}
+        ${sw('openAtLogin', 'Abrir junto com o Windows')}
+        ${sw('startMinimized', 'Começar minimizado', 'Só o ícone perto do relógio.')}
       </div>
-      <div class="section-title">Painel (IdleLive)</div>
-      <p class="hint">Já usava o IdleLive avulso (iniciar.bat)? Traga as contas da Twitch e da Kick, os canais e o histórico.
-        Feche a janela preta do IdleLive antes e, depois de importar, use só o IdleHub.</p>
-      <button class="btn small" data-act="idlelive-import">📥 Importar dados do IdleLive…</button>
-      <div class="section-title">Sobre</div>
-      <p class="hint">IdleHub v${esc(S.version)} · Seus dados ficam só neste PC.
-        <button class="btn small" data-act="open-data">Abrir pasta de dados</button></p>
+      <div class="form-block">
+        <span class="form-label">Painel (IdleLive)</span>
+        <p class="meta">Já usava o IdleLive avulso (iniciar.bat)? Traga as contas da Twitch e da Kick, os canais e o histórico.
+          Feche a janela preta do IdleLive antes e, depois de importar, use só o IdleHub.</p>
+        <div><wa-button size="s" variant="brand" appearance="outlined" data-action="idlelive-import"><wa-icon slot="start" name="file-import"></wa-icon>Importar dados do IdleLive</wa-button></div>
+      </div>
+      <div class="form-block">
+        <span class="form-label">Sobre</span>
+        <p class="meta">IdleHub v${esc(S.version)}. Seus dados ficam só neste PC.</p>
+        <div><wa-button size="s" appearance="plain" data-action="open-data"><wa-icon slot="start" name="folder-open"></wa-icon>Abrir pasta de dados</wa-button></div>
+      </div>
     </div>
-    <footer><button class="btn" data-act="modal-close">Cancelar</button><button class="btn primary" data-act="settings-save">Salvar</button></footer>`;
+    <wa-button slot="footer" appearance="plain" data-dialog="close">Cancelar</wa-button>
+    <wa-button slot="footer" variant="brand" data-action="settings-save">Salvar</wa-button>`;
 }
 
 function collectSettings() {
   const d = S.modal.draft;
-  for (const el of $$('.modal [data-f]')) d[el.dataset.f] = el.type === 'checkbox' ? el.checked : Number(el.value);
+  for (const el of $$('#dialog [data-f]')) d[el.dataset.f] = el.localName === 'wa-switch' ? el.checked : Number(el.value);
 }
 
 // ----- atividade
 function logHtml() {
   const items = [...S.runtime.log].reverse();
   const t = (ms) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  return `
-    <header><h2>Atividade</h2><p>Recargas automáticas, logouts e alertas desta sessão.</p></header>
-    <div class="body"><div class="log">
-      ${
-        items.length
-          ? items.map((l) => `<div class="log-item ${l.level}"><span class="t">${t(l.t)}</span><span class="who">${esc(l.who)}</span><span class="msg">${esc(l.text)}</span></div>`).join('')
-          : '<p class="hint">Nada aconteceu ainda. 😴</p>'
-      }
-    </div></div>
-    <footer><button class="btn primary" data-act="modal-close">Fechar</button></footer>`;
+  return `<p class="meta" style="margin:0 0 var(--wa-space-s)">Recargas automáticas, logouts e alertas desde que o IdleHub abriu.</p>
+    ${
+      items.length
+        ? `<div class="log">${items.map((l) => `<div class="log-item ${l.level}"><span class="meta num">${t(l.t)}</span><span class="who">${esc(l.who)}</span><span class="msg">${esc(l.text)}</span></div>`).join('')}</div>`
+        : `<div class="empty">${icon('bell')}<p>Nada aconteceu ainda. Quando uma conta for recarregada ou um alerta disparar, aparece aqui.</p></div>`
+    }
+    <wa-button slot="footer" variant="brand" data-dialog="close">Fechar</wa-button>`;
 }
 
 // ---------------------------------------------------------------- ações
@@ -645,14 +733,16 @@ async function onAction(act, el) {
       S.idlelive = await api.idleliveAction('restart');
       return render();
     case 'idlelive-import': {
+      el.loading = true;
       const r = await api.idleliveImport();
+      el.loading = false;
       if (r.canceled) return;
-      if (!r.ok) return alert(r.error);
-      alert(`Pronto! Importei: ${r.files.join(', ')}.\n\nO painel está abrindo com as suas contas.`);
+      if (!r.ok) return toast(r.error);
       if (r.autostartMoved) S.openAtLogin = true;
-      S.modal = null;
+      closeModal();
       S.view = { kind: 'panel' };
-      return render();
+      render();
+      return toast(`Pronto! Importei ${r.files.length} arquivos. O Painel está abrindo com as suas contas.`, 'info');
     }
     case 'view-all':
       S.view = { kind: 'all' };
@@ -677,6 +767,7 @@ async function onAction(act, el) {
     case 'game-wake':
     case 'game-sleep':
     case 'game-reload':
+      el.loading = true;
       await api.gameAction(id || null, { 'game-wake': 'wake-all', 'game-sleep': 'sleep-all', 'game-reload': 'reload-all' }[act]);
       await refreshConfig();
       return render();
@@ -692,10 +783,6 @@ async function onAction(act, el) {
       return openModal('log');
     case 'open-data':
       return api.openData();
-    case 'modal-close':
-      if (S.modal?.kind === 'log') S.seenLog = Date.now();
-      closeModal();
-      return updateRail();
 
     case 'onboard-done': {
       collectOnboard();
@@ -715,44 +802,51 @@ async function onAction(act, el) {
         loggedOut: clone(p.loggedOut), watchers: clone(p.watchers),
         accounts: Array.from({ length: p.suggestedAccounts }, (_, i) => ({ id: '', name: `Conta ${i + 1}`, sleeping: false })),
       });
-      return renderModal();
+      return renderModalBody();
     }
     case 'acc-add':
       collectGame();
       S.modal.draft.accounts.push({ id: '', name: `Conta ${S.modal.draft.accounts.length + 1}`, sleeping: false });
-      return renderModal();
+      return renderModalBody();
     case 'acc-del': {
       collectGame();
       const d = S.modal.draft;
-      const a = d.accounts[Number(el.dataset.i)];
-      if (d.accounts.length <= 1) return alert('O jogo precisa de pelo menos uma conta.');
-      if (a.id && !confirm(`Remover "${a.name}"? O login salvo dessa conta será apagado ao salvar.`)) return;
-      d.accounts.splice(Number(el.dataset.i), 1);
-      return renderModal();
+      const i = Number(el.dataset.i);
+      const a = d.accounts[i];
+      if (d.accounts.length <= 1) return toast('O jogo precisa de pelo menos uma conta.');
+      if (a.id && !(await ask({ title: `Remover ${a.name}?`, text: 'O login salvo dessa conta é apagado quando você salvar o jogo. Dá para adicionar a conta de novo, mas vai ser preciso entrar nela outra vez.', ok: 'Remover', danger: true }))) return;
+      d.accounts.splice(i, 1);
+      return renderModalBody();
     }
     case 'w-add':
       collectGame();
       S.modal.draft.watchers.push({ id: '', name: 'Novo alerta', kind: 'text', selector: '', pattern: '', op: '>=', value: 0, enabled: true });
-      return renderModal();
+      return renderModalBody();
     case 'w-del':
       collectGame();
       S.modal.draft.watchers.splice(Number(el.dataset.i), 1);
-      return renderModal();
+      return renderModalBody();
     case 'game-save': {
       collectGame();
       const d = S.modal.draft;
-      if (!d.name) return alert('Dê um nome para o jogo.');
+      if (!d.name) {
+        const input = $('#dialog [data-f="name"]');
+        input?.focus();
+        return toast('Dê um nome para o jogo.');
+      }
       const isNew = !d.id;
+      el.loading = true;
       S.config = await api.saveGame(d);
-      S.modal = null;
+      closeModal();
       if (isNew) S.view = { kind: 'game', gameId: S.config.games[S.config.games.length - 1].id };
-      return render();
+      render();
+      return toast(isNew ? `${d.name} adicionado.` : 'Jogo salvo.', 'info');
     }
     case 'game-delete': {
       const d = S.modal.draft;
-      if (!confirm(`Excluir "${d.name}" e todas as contas dele? Os logins salvos serão apagados.`)) return;
+      if (!(await ask({ title: `Excluir ${d.name}?`, text: 'Todas as contas dele saem do IdleHub e os logins salvos são apagados. Não dá para desfazer.', ok: 'Excluir', danger: true }))) return;
       S.config = await api.deleteGame(d.id);
-      S.modal = null;
+      closeModal();
       S.view = { kind: 'all' };
       return render();
     }
@@ -760,8 +854,9 @@ async function onAction(act, el) {
       collectSettings();
       S.openAtLogin = !!S.modal.draft.openAtLogin;
       S.config = await api.saveSettings(S.modal.draft);
-      S.modal = null;
-      return render();
+      closeModal();
+      render();
+      return toast('Configurações salvas.', 'info');
     }
   }
 }
@@ -770,7 +865,7 @@ function focusAccount(key) {
   if (!key) return;
   const back = S.view.kind === 'focus' ? S.view.back : S.view;
   S.view = { kind: 'focus', key, gameId: key.split(':')[0], back };
-  S.modal = null;
+  if (S.modal) closeModal();
   render();
 }
 
@@ -780,11 +875,14 @@ async function refreshConfig() {
   S.runtime = st.runtime;
 }
 
-// ---------------------------------------------------------------- init
+// ---------------------------------------------------------------- início
 async function init() {
   const st = await api.getState();
-  Object.assign(S, { config: st.config, presets: st.presets, runtime: st.runtime, version: st.version, dataPath: st.dataPath, openAtLogin: st.openAtLogin });
+  Object.assign(S, { config: st.config, presets: st.presets, runtime: st.runtime, version: st.version, openAtLogin: st.openAtLogin });
   if (st.idlelive) S.idlelive = st.idlelive;
+  // Espera a janela (já na página) ficar pronta, para as boas-vindas abrirem. O carregador do Web Awesome
+  // só busca um componente quando ele aparece na página, então não dá para esperar os que ainda não foram desenhados.
+  await Promise.race([customElements.whenDefined('wa-dialog'), new Promise((r) => setTimeout(r, 2000))]);
   if (!S.config.onboarded) S.modal = { kind: 'onboard', draft: onboardDraft() };
   render();
 
@@ -796,26 +894,26 @@ async function init() {
   });
   api.onFocusAccount(focusAccount);
 
+  // Um ouvinte só para todos os botões (data-action), como pede o DESIGN.md.
   document.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-act]');
-    if (el) onAction(el.dataset.act, el);
+    const el = e.target.closest('[data-action]');
+    if (el && !el.disabled) onAction(el.dataset.action, el);
   });
   document.addEventListener('dblclick', (e) => {
     const head = e.target.closest('.tile-head');
-    if (head && !e.target.closest('button') && S.view.kind !== 'focus') focusAccount(head.closest('[data-key]').dataset.key);
+    if (head && !e.target.closest('wa-button') && S.view.kind !== 'focus') focusAccount(head.closest('[data-key]').dataset.key);
   });
   document.addEventListener('change', (e) => {
-    // alterna campos dependentes no modal de jogo / boas-vindas
-    if (S.modal?.kind === 'game' && /^w-(kind|op)$/.test(e.target.dataset.f || '')) {
+    const f = e.target.dataset?.f || '';
+    // Tipo/condição do alerta liga e desliga os campos ao lado.
+    if (S.modal?.kind === 'game' && /^w-(kind|op)$/.test(f)) {
       collectGame();
-      renderModal();
+      renderModalBody();
     }
-    if (S.modal?.kind === 'onboard' && e.target.dataset.f === 'on') e.target.closest('.pick').classList.toggle('off', !e.target.checked);
+    if (S.modal?.kind === 'onboard' && f === 'on') e.target.closest('.pick').classList.toggle('off', !e.target.checked);
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    if (S.modal && S.modal.kind !== 'onboard') onAction('modal-close', document.body);
-    else if (!S.modal && S.view.kind === 'focus') onAction('back', document.body);
+    if (e.key === 'Escape' && !S.modal && !S.asking && S.view.kind === 'focus') onAction('back', document.body);
   });
 
   let resizeTimer;
