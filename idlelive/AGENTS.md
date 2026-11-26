@@ -2,6 +2,17 @@
 
 Leia antes de mexer no projeto. Elas valem para qualquer agente (Claude, Copilot, Cursor, etc.).
 
+## Dentro do IdleHub
+
+Esta pasta é o IdleLive importado para o IdleHub, onde ele aparece como **Painel**. Valem as regras do [AGENTS.md do IdleHub](../AGENTS.md) e, para o código desta pasta, as regras abaixo, com estas diferenças:
+
+- O IdleHub roda o `server.js` num processo separado (`src/main/idlelive.js`), com `IDLELIVE_EMBEDDED=1`, `IDLELIVE_DATA_DIR=%APPDATA%/IdleHub/idlelive` e porta 3000. Nesse modo o servidor não se atualiza sozinho, não mexe no "Iniciar com o Windows" e o "Reiniciar servidor" funciona (o IdleHub reabre o processo ao receber o código 75). O modo avulso (`iniciar.bat`) continua funcionando igual.
+- **Testes:** rode `npm run test:idlelive` na raiz do IdleHub (sintaxe + `node --test` desta pasta). O CI que vale é o da raiz (`.github/workflows/ci.yml`); os workflows de `idlelive/.github/` não rodam aqui.
+- Para testar sem derrubar as contas de ninguém, rode o IdleHub com `IDLEHUB_DATA` e `IDLEHUB_IDLELIVE_PORT` (outra pasta e outra porta), em vez de copiar esta pasta.
+- **Changelog e versões:** mudanças entram no `CHANGELOG.md` da raiz e vão junto com cada versão do IdleHub. O `CHANGELOG.md`, o `src/update.js` e o `release.yml` desta pasta são do IdleLive avulso.
+- **Commits:** seguem as regras do IdleHub (Conventional Commits, sem mencionar IA), não a regra "Commits em português" lá de baixo.
+- O visual da interface do IdleHub (em volta do Painel) segue o [DESIGN.md da raiz](../DESIGN.md), com a mesma base deste [DESIGN.md](DESIGN.md).
+
 ## Sobre o projeto
 
 IdleLive é um painel local (Node.js) para jogadores de jogos idle que dão bônus por assistir lives de parceiros:

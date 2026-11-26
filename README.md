@@ -15,6 +15,10 @@ npm install
 npm start
 ```
 
+Antes de enviar mudanças: `npm run check` (sintaxe), `npm test` (testes do app) e
+`npm run test:idlelive` (testes do Painel). O GitHub Actions roda os três a cada push.
+Regras do projeto: [AGENTS.md](AGENTS.md) · visual: [DESIGN.md](DESIGN.md) · mudanças: [CHANGELOG.md](CHANGELOG.md).
+
 ## Gerar o instalador para os amigos
 
 ```powershell
@@ -46,7 +50,8 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Perfis prontos dos jogos | `src/main/games.js` |
 | Configuração local (`%APPDATA%/IdleHub/config.json`) | `src/main/config.js` |
 | "Sempre visível" + limitador de FPS injetado no jogo | `src/preload/game.js` |
-| Interface | `src/renderer/` |
+| Interface (Web Awesome, Font Awesome e Montserrat vêm junto, servidos por `idlehub://`) | `src/renderer/` |
+| Testes (`node:test`) | `test/` |
 | Inicia, vigia e reinicia o IdleLive; importa dados do IdleLive avulso | `src/main/idlelive.js` |
 | Página do IdleLive dentro da janela | `src/main/panel.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
