@@ -298,8 +298,21 @@ function checkUpdates() {
   } catch {}
 }
 
+// "LoL Idle" virou "LoLdle", o mesmo nome do Painel (IdleLive). Só troca se o nome não foi mudado à mão.
+function migrateConfig() {
+  let changed = false;
+  for (const g of cfg.games) {
+    if (g.preset === 'lolidle' && g.name === 'LoL Idle') {
+      g.name = 'LoLdle';
+      changed = true;
+    }
+  }
+  if (changed) saveConfig();
+}
+
 function start() {
   cfg = config.load();
+  migrateConfig();
   createWindow();
   mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit });
   idlelive = new IdleLive({ onChange: scheduleEmit, onReady: () => panel?.onServerReady() });

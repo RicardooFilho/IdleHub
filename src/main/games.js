@@ -22,10 +22,10 @@ const PRESETS = [
   },
   {
     preset: 'lolidle',
-    name: 'LoL Idle',
+    name: 'LoLdle', // mesmo nome usado no Painel (IdleLive)
     short: 'LoL',
     color: '#c8a13a',
-    url: '',
+    url: 'https://lolidle.com/jogar#entrar',
     suggestedAccounts: 5,
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
     watchers: [],
@@ -35,7 +35,7 @@ const PRESETS = [
     name: 'One Piece Idle',
     short: 'OP',
     color: '#3e7bfa',
-    url: '',
+    url: 'https://oneidlepiece.com/entrar',
     suggestedAccounts: 2,
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
     watchers: [],
