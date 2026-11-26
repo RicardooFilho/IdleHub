@@ -4,6 +4,10 @@ Painel para jogos idle de navegador: várias contas por jogo numa janela só,
 watchdog que recarrega conta travada, contas "dormindo" para liberar memória e
 alertas lendo valores da página. Tudo roda no PC de cada pessoa; não há servidor.
 
+Inclui o **Painel** (o [IdleLive](idlelive/README.md)): contas da Twitch e da Kick
+juntando pontos do canal nas lives dos parceiros, votos e histórico. As contas dos
+jogos continuam rodando enquanto você usa o Painel.
+
 ## Rodar no seu PC (desenvolvimento)
 
 ```powershell
@@ -43,6 +47,9 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Configuração local (`%APPDATA%/IdleHub/config.json`) | `src/main/config.js` |
 | "Sempre visível" + limitador de FPS injetado no jogo | `src/preload/game.js` |
 | Interface | `src/renderer/` |
+| Inicia, vigia e reinicia o IdleLive; importa dados do IdleLive avulso | `src/main/idlelive.js` |
+| Página do IdleLive dentro da janela | `src/main/panel.js` |
+| O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
 
 - **Logins:** cada conta tem sua própria pasta de cookies (`persist:acc-<jogo>-<conta>`).
   O painel não guarda senhas; você entra uma vez em cada conta e o login fica salvo.
@@ -51,7 +58,23 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
   (no máximo 1 recarga por minuto por conta). Avisa quando a conta sai do login.
 - **Alertas:** "Texto" (palavra aparece na página) ou "Número" (seletor CSS e/ou regex + condição).
   Use **🔍 Inspecionar** numa conta expandida para achar o seletor.
-- **Memória:** contas escondidas rodam com FPS baixo; contas dormindo não gastam nada.
+- **Memória:** contas escondidas rodam com FPS limitado (só a animação; os temporizadores do
+  jogo seguem em 100%); contas dormindo não gastam nada.
+
+## Painel (IdleLive)
+
+- Roda num processo separado (`utilityProcess`), na porta **3000**, com
+  `IDLELIVE_EMBEDDED=1`: a atualização própria e o "Iniciar com o Windows" do IdleLive
+  ficam desligados, porque o IdleHub cuida disso. "Reiniciar servidor" funciona.
+- Se ele cair, o IdleHub abre de novo sozinho. Os jogos não são afetados.
+- Os dados (tokens da Twitch/Kick, canais, histórico) ficam em `%APPDATA%/IdleHub/idlelive`,
+  **nunca** na pasta do projeto nem no git.
+- **Porta 3000 ocupada** = IdleLive avulso (`iniciar.bat`) aberto. O IdleHub espera e
+  assume quando ele fechar. Os dois juntos com as mesmas contas fariam a Twitch pedir
+  para vincular de novo (o refresh token só vale uma vez).
+- **Importar do IdleLive avulso:** Configurações → Importar dados do IdleLive.
+- Testes do IdleLive: `npm run test:idlelive`. Para testar o app sem fechar o IdleLive avulso:
+  `$env:IDLEHUB_IDLELIVE_PORT='3055'` (e `IDLEHUB_DATA` com uma pasta de teste).
 
 ## Testar sem mexer na sua config
 
