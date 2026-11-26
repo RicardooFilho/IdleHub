@@ -1,0 +1,263 @@
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell } = require('electron');
+const path = require('path');
+const config = require('./config');
+const { PRESETS, gameFromPreset, sanitizeGame } = require('./games');
+const { AccountManager } = require('./accounts');
+
+// Pasta de dados alternativa (útil para testar sem mexer na sua config real).
+if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
+
+// Jogos precisam continuar rodando mesmo com a janela escondida/minimizada.
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+
+const APP_ID = 'com.idlehub.app';
+app.setAppUserModelId(APP_ID);
+// User-agent de Chrome comum (alguns sites recusam o "Electron" no UA).
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+app.userAgentFallback = app.userAgentFallback
+  .replace(/\sElectron\/\S+/i, '')
+  .replace(new RegExp(`\\s${escapeRe(app.getName())}\\/\\S+`, 'i'), '');
+
+const ICON = path.join(__dirname, '../../build/icon.png');
+
+let cfg;
+let win = null;
+let tray = null;
+let mgr = null;
+let quitting = false;
+let trayHintShown = false;
+let emitQueued = false;
+
+const saveConfig = () => config.save(cfg);
+
+function showWindow() {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function notify(title, body, key) {
+  if (!cfg.settings.notifyWindows || !Notification.isSupported()) return;
+  const n = new Notification({ title, body, icon: ICON });
+  n.on('click', () => {
+    showWindow();
+    if (key) win.webContents.send('focus-account', key);
+  });
+  n.show();
+}
+
+function emitState() {
+  emitQueued = false;
+  if (!win || win.isDestroyed()) return;
+  const metrics = app.getAppMetrics();
+  mgr.updateMetrics(metrics);
+  const totalMem = Math.round(metrics.reduce((s, m) => s + (m.memory?.workingSetSize || 0), 0) / 1024);
+  const snap = mgr.snapshot();
+  win.webContents.send('state', { runtime: snap, totalMem });
+  updateTrayMenu();
+  if (process.env.IDLEHUB_DEBUG) {
+    const line = Object.entries(snap.accounts).map(([k, a]) => `${k.split(':')[1]}=${a.status}/${a.mem}MB`).join(' ');
+    console.log(`[state] total=${totalMem}MB ${line}`);
+  }
+}
+
+function scheduleEmit() {
+  if (emitQueued) return;
+  emitQueued = true;
+  setTimeout(emitState, 150);
+}
+
+function updateTrayMenu() {
+  if (!tray) return;
+  const snap = mgr.snapshot().accounts;
+  const all = Object.values(snap);
+  const running = all.filter((a) => a.live).length;
+  tray.setToolTip(`IdleHub — ${running}/${all.length} contas rodando`);
+}
+
+function createTray() {
+  const img = nativeImage.createFromPath(ICON).resize({ width: 32, height: 32 });
+  tray = new Tray(img);
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Abrir painel', click: showWindow },
+      { type: 'separator' },
+      { label: 'Acordar todas as contas', click: () => mgr.gameAction(null, 'wake-all') },
+      { label: 'Dormir todas as contas', click: () => mgr.gameAction(null, 'sleep-all') },
+      { type: 'separator' },
+      { label: 'Sair', click: () => { quitting = true; app.quit(); } },
+    ])
+  );
+  tray.on('click', showWindow);
+  updateTrayMenu();
+}
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 900,
+    minHeight: 600,
+    show: false,
+    backgroundColor: '#0b0d12',
+    autoHideMenuBar: true,
+    icon: ICON,
+    title: 'IdleHub',
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/ui.js'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+    },
+  });
+  win.removeMenu();
+  win.loadFile(path.join(__dirname, '../renderer/index.html'));
+  win.once('ready-to-show', () => {
+    if (!cfg.settings.startMinimized || !cfg.onboarded) win.show();
+  });
+  win.on('close', (e) => {
+    if (!quitting && cfg.settings.closeToTray) {
+      e.preventDefault();
+      win.hide();
+      if (!trayHintShown) {
+        trayHintShown = true;
+        notify('IdleHub continua rodando', 'As contas seguem ativas. Use o ícone perto do relógio para abrir ou sair.');
+      }
+    }
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // Teste visual: IDLEHUB_SCREENSHOT=arquivo.png salva um print da interface.
+  if (process.env.IDLEHUB_SCREENSHOT) {
+    setTimeout(async () => {
+      const img = await win.webContents.capturePage();
+      require('fs').writeFileSync(process.env.IDLEHUB_SCREENSHOT, img.toPNG());
+      console.log('screenshot ok');
+    }, Number(process.env.IDLEHUB_SCREENSHOT_DELAY || 5000));
+  }
+}
+
+function registerIpc() {
+  ipcMain.handle('state:get', () => ({
+    config: cfg,
+    presets: PRESETS,
+    runtime: mgr.snapshot(),
+    version: app.getVersion(),
+    dataPath: app.getPath('userData'),
+    openAtLogin: app.getLoginItemSettings().openAtLogin,
+  }));
+
+  ipcMain.on('layout:set', (_e, tiles) => mgr.setLayout(tiles));
+  ipcMain.handle('account:action', (_e, key, action) => mgr.action(String(key), String(action)));
+  ipcMain.handle('game:action', (_e, gameId, action) => mgr.gameAction(gameId || null, String(action)));
+
+  ipcMain.handle('config:onboard', (_e, selections) => {
+    for (const sel of selections || []) {
+      const p = PRESETS.find((x) => x.preset === sel.preset);
+      if (!p) continue;
+      cfg.games.push(sanitizeGame(gameFromPreset(p, { url: sel.url, accounts: Number(sel.accounts) || 1 })));
+    }
+    cfg.onboarded = true;
+    saveConfig();
+    mgr.sync();
+    return cfg;
+  });
+
+  ipcMain.handle('game:save', (_e, raw) => {
+    const game = sanitizeGame(raw);
+    const idx = cfg.games.findIndex((g) => g.id === game.id);
+    if (idx >= 0) {
+      const removed = cfg.games[idx].accounts.filter((a) => !game.accounts.some((b) => b.id === a.id));
+      cfg.games[idx] = game;
+      removed.forEach((a) => mgr.forget(game.id, a.id));
+    } else {
+      cfg.games.push(game);
+    }
+    saveConfig();
+    mgr.sync();
+    return cfg;
+  });
+
+  ipcMain.handle('game:delete', (_e, id) => {
+    const g = cfg.games.find((x) => x.id === id);
+    if (!g) return cfg;
+    cfg.games = cfg.games.filter((x) => x.id !== id);
+    saveConfig();
+    mgr.sync();
+    g.accounts.forEach((a) => mgr.forget(g.id, a.id));
+    return cfg;
+  });
+
+  ipcMain.handle('settings:save', (_e, s) => {
+    const d = config.DEFAULT_SETTINGS;
+    const num = (v, def, min, max) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+    };
+    cfg.settings = {
+      ...cfg.settings,
+      watchdogIntervalSec: num(s.watchdogIntervalSec, d.watchdogIntervalSec, 10, 600),
+      reloadAfterFailures: num(s.reloadAfterFailures, d.reloadAfterFailures, 1, 10),
+      memoryLimitMB: num(s.memoryLimitMB, d.memoryLimitMB, 0, 16000),
+      backgroundFps: num(s.backgroundFps, d.backgroundFps, 0, 144),
+      mosaicFps: num(s.mosaicFps, d.mosaicFps, 0, 144),
+      tileBaseWidth: num(s.tileBaseWidth, d.tileBaseWidth, 480, 3840),
+      muteAll: !!s.muteAll,
+      closeToTray: !!s.closeToTray,
+      notifyWindows: !!s.notifyWindows,
+      startMinimized: !!s.startMinimized,
+    };
+    app.setLoginItemSettings({ openAtLogin: !!s.openAtLogin });
+    saveConfig();
+    mgr.startWatchdog();
+    for (const rt of mgr.rt.values()) {
+      rt.fps = undefined;
+      rt.muted = undefined;
+    }
+    mgr.applyLayout();
+    return cfg;
+  });
+
+  ipcMain.handle('open:data', () => shell.openPath(app.getPath('userData')));
+}
+
+function checkUpdates() {
+  // Só existe quando o "publish" (GitHub Releases) estiver configurado no package.json.
+  if (!app.isPackaged || !require('fs').existsSync(path.join(process.resourcesPath, 'app-update.yml'))) return;
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.on('error', () => {});
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    setInterval(() => autoUpdater.checkForUpdatesAndNotify().catch(() => {}), 6 * 60 * 60 * 1000);
+  } catch {}
+}
+
+function start() {
+  cfg = config.load();
+  createWindow();
+  mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit });
+  registerIpc();
+  mgr.sync();
+  mgr.startWatchdog();
+  createTray();
+  setInterval(emitState, 3000);
+  checkUpdates();
+}
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', showWindow);
+  app.whenReady().then(start);
+  app.on('before-quit', () => {
+    quitting = true;
+    mgr?.shutdown();
+  });
+  app.on('window-all-closed', () => app.quit());
+}
