@@ -1,0 +1,606 @@
+// Pontos do canal (Kick): até 4 contas, cada uma "assiste" até 2 lives dos canais parceiros em segundo plano.
+// Baseado no Kick Channel Points Miner (github.com/Baillora/Kick_Channel_Points_Miner): abre a mesma conexão de
+// espectador que o player do site abre e manda o aviso de "assistindo" de tempos em tempos.
+// Mesmas travas da Twitch (human.js): descanso diário, tempos aleatórios e poucas leituras de saldo.
+import { kick, saveKick, MAX_ACCOUNTS, MAX_LOL_ACCOUNTS } from './store.js';
+import { fetchKickUser, fetchKickPoints, fetchKickRewards, redeemKickReward, fetchViewerToken, followKickChannel, cleanKickToken } from './kick.js';
+import { isNetworkError } from './twitch.js';
+import { redeemProblem, setBalance } from './points.js';
+import { recordPoints } from './stats.js';
+import { addEvent } from './events.js';
+import { sleep, random, clock, restWindow, isResting, SWITCH_DELAY, START_DELAY, CHECK_OTHERS, CHECK_TICK, CHECKS_PER_TICK, FOLLOW_DELAY, FOLLOW_GAP, FOLLOW_CHECK } from './human.js';
+
+const MAX_WATCH = 2; // lives por conta ao mesmo tempo (mais que isso a Kick começa a bloquear)
+const LOOP = 20 * 1000;
+const CHECK_WATCHING = [5 * 60 * 1000, 10 * 60 * 1000];
+const TRACK_EVERY = [9.5 * 1000, 12.5 * 1000]; // aviso de "assistindo", como o player
+const HANDSHAKE_EVERY = [25 * 1000, 35 * 1000]; // "ainda estou neste canal" + ping
+const FAILS_ALERT = 3;
+const FOLLOW_CHECKS = 3; // leituras logo depois do follow em que a diferença de saldo conta como bônus de follow
+const SILENCE_LIMIT = 90 * 1000; // sem nada da Kick nesse tempo, a conexão está "morta" (PC hibernou, roteador caiu)
+const STABLE_AFTER = 60 * 1000; // a espera entre reconexões só volta ao mínimo depois de a conexão ficar de pé esse tempo
+
+// O farm da Kick serve aos dois jogos, cada um com as suas contas e canais. Muda só o texto:
+// os acontecimentos do LoLdle começam com "LoLdle:" (é assim que o painel separa os jogos) e,
+// no histórico, as contas do LoLdle não se misturam com as do Pokeidle (a mesma conta pode estar nos dois).
+export const KICK_GAMES = {
+  pokeidle: { log: 'Kick', event: '', where: 'Pokeidle → Kick', name: 'Pokeidle', history: 'Kick' },
+  lolidle: { log: 'LoLdle Kick', event: 'LoLdle: ', where: 'LoLdle → Kick', name: 'LoLdle', history: 'LoLdle Kick' },
+};
+
+// Uma conexão de espectador numa live (wss://websockets.kick.com/viewer/v1/connect).
+export class KickWatch {
+  constructor({ token, live, log, report, onAuthError }) {
+    this.token = token;
+    this.live = live; // { slug, channelId, userId, livestreamId }
+    this.log = log;
+    this.report = report;
+    this.onAuthError = onAuthError;
+    this.ws = null;
+    this.timers = new Set(); // só os que ainda não dispararam
+    this.stopped = false;
+    this.connected = false;
+    this.retryDelay = 5000;
+    this.error = null;
+  }
+
+  async start() {
+    if (this.stopped) return;
+    try {
+      const viewerToken = await fetchViewerToken(this.token(), this.live);
+      if (this.stopped) return;
+      this.open(viewerToken);
+    } catch (err) {
+      this.fail(err);
+    }
+  }
+
+  open(viewerToken) {
+    const ws = new WebSocket(`wss://websockets.kick.com/viewer/v1/connect?token=${encodeURIComponent(viewerToken)}`);
+    this.ws = ws;
+    const send = (data) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(data));
+    const handshake = () => send({ type: 'channel_handshake', data: { message: { channelId: Number(this.live.channelId) } } });
+    // Repete em intervalos aleatórios, cada um sorteado de novo.
+    const every = (range, fn) => {
+      const tick = () => this.later(() => {
+        fn();
+        tick();
+      }, random(range));
+      tick();
+    };
+
+    let lastData = Date.now();
+    let stableTimer;
+    ws.onopen = () => {
+      this.connected = true;
+      lastData = Date.now();
+      // Se a Kick derrubar logo depois de aceitar, a espera continua crescendo em vez de virar um laço rápido.
+      stableTimer = setTimeout(() => (this.retryDelay = 5000), STABLE_AFTER);
+      if (this.error) this.log(`#${this.live.slug} voltou a contar`);
+      this.error = null;
+      handshake();
+      send({ type: 'ping' });
+      every(HANDSHAKE_EVERY, () => {
+        // A Kick responde o ping; sem resposta nenhuma por muito tempo, derruba para reconectar.
+        if (Date.now() - lastData > SILENCE_LIMIT) {
+          this.report('bad', `#${this.live.slug}: sem resposta da Kick, refazendo a conexão`, this.live.slug);
+          ws.close();
+          return;
+        }
+        handshake();
+        send({ type: 'ping' });
+      });
+      every(TRACK_EVERY, () => send({
+        type: 'user_event',
+        data: { message: { name: 'tracking.user.watch.livestream', channel_id: Number(this.live.channelId), livestream_id: Number(this.live.livestreamId) } },
+      }));
+    };
+    ws.onmessage = (event) => {
+      lastData = Date.now();
+      const text = String(event.data).trim();
+      if (text === 'ping') return ws.send('pong');
+      let msg;
+      try {
+        msg = JSON.parse(text);
+      } catch {
+        return;
+      }
+      if (msg.type === 'ping') send({ type: 'pong' });
+      else if (msg.type === 'error') this.fail(new Error(msg.data?.message ?? 'erro da Kick'));
+    };
+    ws.onclose = () => {
+      this.clearTimers();
+      clearTimeout(stableTimer);
+      this.connected = false;
+      if (this.stopped || this.ws !== ws) return;
+      this.retry();
+    };
+    ws.onerror = () => {}; // o onclose cuida
+  }
+
+  fail(err) {
+    if (err.status === 401) {
+      this.onAuthError(err);
+      return;
+    }
+    // A Kick responde 403 ao token de espectador quando o token da conta não vale mais; a conta confere antes de pedir outro.
+    if (err.status === 403) this.onAuthError(err);
+    const text = isNetworkError(err) ? 'sem internet' : err.message;
+    if (this.error !== text) this.report('bad', `#${this.live.slug} não contou (${text})`, this.live.slug);
+    this.error = text;
+    if (!this.connected) this.retry();
+  }
+
+  retry() {
+    if (this.stopped) return;
+    this.later(() => this.start(), this.retryDelay);
+    this.retryDelay = Math.min(this.retryDelay * 2, 2 * 60 * 1000);
+  }
+
+  // setTimeout que dá para cancelar em clearTimers. O timer sai da lista quando dispara: o aviso de "assistindo"
+  // roda a cada ~11 s, e guardar todos faria a lista crescer enquanto a live durasse.
+  later(fn, ms) {
+    const timer = setTimeout(() => {
+      this.timers.delete(timer);
+      fn();
+    }, ms);
+    this.timers.add(timer);
+  }
+
+  clearTimers() {
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+  }
+
+  stop() {
+    this.stopped = true;
+    this.clearTimers();
+    this.ws?.close();
+  }
+}
+
+// Uma conta da Kick: escolhe as próprias lives pelos próprios saldos.
+export class KickAccount {
+  constructor(account, { log, game = 'pokeidle' }) {
+    this.account = account; // objeto salvo em kick.json: { id, username, token, profile, needsRelink }
+    this.baseLog = log;
+    this.game = game;
+    this.text = KICK_GAMES[game];
+    this.live = []; // [{ slug, channelId, userId, livestreamId }]
+    this.all = [];
+    this.channels = new Map(); // canal -> { balance, startBalance, nextCheck }
+    this.watches = new Map(); // canal -> KickWatch
+    this.followFailed = new Set(); // canais em que o follow falhou nesta sessão (tenta de novo quando o painel reiniciar)
+    this.nextFollow = 0;
+    this.followBusy = false;
+    this.stopped = false;
+    this.wasResting = false;
+    this.checking = false;
+    this.netFails = 0;
+    this.siteFails = 0;
+    this.siteError = null;
+    this.redeeming = false; // um resgate por vez, para dois cliques não gastarem duas vezes
+  }
+
+  log(msg) {
+    this.baseLog(`${this.text.log} (${this.account.username}): ${msg}`);
+  }
+
+  // Escreve na janela preta e anota na lista de erros do topo do painel.
+  report(kind, msg, channel = null) {
+    this.log(msg);
+    addEvent({ kind, platform: 'kick', account: this.account.username, channel, text: `${this.text.event}${msg}` });
+  }
+
+  get active() {
+    return !this.stopped && !!this.account.token && !this.account.needsRelink;
+  }
+
+  get resting() {
+    return isResting(`kick:${this.account.id}`);
+  }
+
+  get farming() {
+    return this.active && !this.resting;
+  }
+
+  get offline() {
+    return this.farming && this.netFails >= FAILS_ALERT;
+  }
+
+  get watching() {
+    return [...this.watches.keys()];
+  }
+
+  channel(slug) {
+    if (!this.channels.has(slug)) this.channels.set(slug, { balance: null, startBalance: null, nextCheck: 0 });
+    return this.channels.get(slug);
+  }
+
+  async start() {
+    await sleep(random(START_DELAY));
+    if (this.stopped) return;
+    this.nextFollow = Date.now() + random(FOLLOW_DELAY);
+    const check = () => {
+      this.checkBalances().catch((err) => this.report('bad', `erro ao ler saldos (${err.message})`));
+      this.followNext();
+    };
+    check();
+    this.timer = setInterval(check, CHECK_TICK);
+    this.loop();
+  }
+
+  stop() {
+    this.stopped = true;
+    clearInterval(this.timer);
+    for (const w of this.watches.values()) w.stop();
+    this.watches.clear();
+  }
+
+  setLive(list, all) {
+    this.live = list;
+    this.all = all;
+  }
+
+  // Mais pontos primeiro; saldo ainda desconhecido vai por último, na ordem da lista.
+  pickTargets() {
+    const balance = (l) => this.channel(l.slug).balance ?? -1;
+    return [...this.live].sort((a, b) => balance(b) - balance(a)).slice(0, MAX_WATCH);
+  }
+
+  markRelink() {
+    if (this.account.needsRelink) return;
+    this.netFails = 0;
+    this.report('bad', `o token foi recusado; cole um token novo em ${this.text.where}`);
+    this.account.needsRelink = true;
+    saveKick();
+    for (const w of this.watches.values()) w.stop();
+    this.watches.clear();
+  }
+
+  // Token recusado (401) ou suspeito (403): confere na conta antes de pedir um token novo,
+  // para um bloqueio passageiro da Kick não virar "cole um token novo".
+  async checkAuth(err) {
+    if (err.status === 401) return this.markRelink();
+    if (this.verifying) return;
+    this.verifying = true;
+    try {
+      await fetchKickUser(this.account.token);
+    } catch (e) {
+      if (e.status === 401) this.markRelink();
+    } finally {
+      this.verifying = false;
+    }
+  }
+
+  updateToken(token, username) {
+    Object.assign(this.account, { token, username, needsRelink: false });
+    saveKick();
+  }
+
+  // Entra e sai do descanso.
+  updateRest() {
+    const resting = this.active && this.resting;
+    if (resting === this.wasResting) return;
+    this.wasResting = resting;
+    if (resting) this.netFails = 0; // no descanso nada é lido, então as falhas de rede antigas não valem mais
+    this.log(resting ? `descansando até ${clock(restWindow(`kick:${this.account.id}`).end)} (horário de Brasília)` : 'voltou do descanso');
+  }
+
+  async loop() {
+    while (!this.stopped) {
+      this.updateRest();
+      const targets = this.farming ? this.pickTargets() : [];
+      const wanted = new Map(targets.map((t) => [t.slug, t]));
+      // Fecha as lives que saíram da escolha ou que viraram outra transmissão.
+      for (const [slug, w] of this.watches) {
+        const t = wanted.get(slug);
+        if (!t || t.livestreamId !== w.live.livestreamId) {
+          w.stop();
+          this.watches.delete(slug);
+        }
+      }
+      const added = targets.filter((t) => !this.watches.has(t.slug));
+      if (added.length) {
+        // Antes de trocar de live, espera um pouco, como alguém que demora para clicar.
+        if (this.watches.size || this.lastWatched) await sleep(random(SWITCH_DELAY));
+        if (this.stopped) return;
+        for (const live of added) {
+          const watch = new KickWatch({ token: () => this.account.token, live, log: (m) => this.log(m), report: (...a) => this.report(...a), onAuthError: (err) => this.checkAuth(err).catch((e) => this.report('bad', `erro ao conferir o token (${e.message})`)) });
+          this.watches.set(live.slug, watch);
+          this.channel(live.slug).nextCheck = 0; // lê o saldo logo, como o site faz ao abrir a live
+          watch.start();
+        }
+      }
+      const names = this.watching;
+      if (names.join() !== (this.lastWatched ?? []).join()) {
+        if (names.length) this.log(`assistindo ${names.map((n) => `#${n}`).join(' e ')}`);
+        else if (this.lastWatched?.length && !this.wasResting) this.log('nenhuma live parceira para assistir agora');
+        this.lastWatched = names;
+      }
+      await sleep(LOOP * random([0.85, 1.15]));
+    }
+  }
+
+  // Segue os canais da lista, um por vez e com intervalos aleatórios, até seguir todos (inclusive os que a conta
+  // quase nunca assiste). Ordem: lives assistidas, depois as outras ao vivo, depois as offline.
+  // Cada canal seguido fica anotado em kick.json: se a pessoa deixar de seguir depois, a conta não segue de novo.
+  async followNext() {
+    if (!this.farming || this.followBusy || Date.now() < this.nextFollow) return;
+    const followed = this.account.followed ?? [];
+    const rank = (slug) => (this.watches.has(slug) ? 0 : this.live.some((l) => l.slug === slug) ? 1 : 2);
+    const slug = this.all.filter((s) => !followed.includes(s) && !this.followFailed.has(s)).sort((a, b) => rank(a) - rank(b))[0];
+    if (!slug) return;
+    this.followBusy = true;
+    try {
+      // Saldo de antes do follow, para o bônus de follow não virar o saldo inicial (e sumir do histórico).
+      if (this.channel(slug).balance === null) {
+        await this.checkChannel(slug);
+        if (!this.active) return;
+      }
+      const now = await followKickChannel(slug, this.account.token);
+      this.account.followed = [...(this.account.followed ?? []), slug];
+      saveKick();
+      if (now) {
+        this.report('good', `seguiu #${slug}`, slug);
+        // Lê o saldo logo depois: a diferença das próximas leituras vai para o histórico como follow.
+        const ch = this.channel(slug);
+        ch.followChecks = FOLLOW_CHECKS;
+        ch.nextCheck = Date.now() + random(FOLLOW_CHECK);
+      }
+    } catch (err) {
+      if (err.status === 401) return this.markRelink();
+      if (isNetworkError(err)) return; // sem internet: tenta o mesmo canal na próxima vez
+      this.followFailed.add(slug);
+      this.report('bad', `não deu para seguir #${slug} (${err.message})`, slug);
+    } finally {
+      this.followBusy = false;
+      this.nextFollow = Date.now() + random(FOLLOW_GAP);
+    }
+  }
+
+  // Lê os saldos que estão na hora (poucos por vez): lives assistidas a cada 5–10 min, o resto a cada ~30.
+  async checkBalances() {
+    if (!this.farming || this.checking) return;
+    this.checking = true;
+    try {
+      const now = Date.now();
+      const isLive = (slug) => this.live.some((l) => l.slug === slug);
+      const rank = (slug) => (this.watches.has(slug) ? 0 : isLive(slug) ? 1 : 2) * 2 + (this.channel(slug).balance === null ? 0 : 1);
+      const due = this.all.filter((slug) => this.channel(slug).nextCheck <= now).sort((a, b) => rank(a) - rank(b)).slice(0, CHECKS_PER_TICK);
+      for (const slug of due) {
+        if (!this.farming) return;
+        await this.checkChannel(slug);
+        await sleep(random([1000, 4000]));
+      }
+    } finally {
+      this.checking = false;
+    }
+  }
+
+  async checkChannel(slug) {
+    const ch = this.channel(slug);
+    ch.nextCheck = Date.now() + random(this.watches.has(slug) ? CHECK_WATCHING : CHECK_OTHERS);
+    let balance;
+    try {
+      balance = await fetchKickPoints(slug, this.account.token);
+      this.netFails = 0;
+      this.siteFails = 0;
+      this.siteError = null;
+    } catch (err) {
+      if (err.status === 401) return this.markRelink();
+      if (isNetworkError(err)) this.netFails++;
+      else {
+        this.siteFails++;
+        this.siteError = err.message;
+        this.report('bad', `erro ao ver os pontos de #${slug} (${err.message})`, slug);
+      }
+      return;
+    }
+    // A Kick não avisa o motivo dos pontos: o histórico anota a diferença de saldo como tempo assistido,
+    // ou como follow se a conta acabou de seguir o canal (o bônus pode demorar, então vale por algumas leituras).
+    const gain = ch.balance === null ? 0 : balance - ch.balance;
+    const reason = ch.followChecks > 0 ? 'FOLLOW' : 'WATCH';
+    if (gain > 0) recordPoints(`${this.account.username} (${this.text.history})`, reason, gain);
+    if (ch.followChecks > 0) {
+      ch.followChecks = gain > 0 ? 0 : ch.followChecks - 1;
+      if (ch.followChecks > 0) ch.nextCheck = Date.now() + random(FOLLOW_CHECK); // o bônus ainda não caiu: olha de novo logo
+    }
+    setBalance(ch, balance);
+  }
+
+  // Resgate pedido pelo jogador na loja do painel (nunca sozinho). Lê saldo e recompensa de novo antes,
+  // porque o preço e a situação podem ter mudado desde que a loja abriu. Mesmas checagens da Twitch.
+  async redeem(slug, rewardId, text = '') {
+    if (!this.active) throw new Error('cole um token novo para esta conta antes de resgatar');
+    if (this.redeeming) throw new Error('já tem um resgate em andamento nesta conta');
+    this.redeeming = true;
+    try {
+      const { rewards } = await fetchKickRewards(slug);
+      const reward = rewards.find((r) => r.id === rewardId);
+      if (!reward) throw new Error('a recompensa não existe mais neste canal');
+      let balance;
+      try {
+        balance = await fetchKickPoints(slug, this.account.token);
+      } catch (err) {
+        if (err.status === 401) this.markRelink();
+        throw err;
+      }
+      const ch = this.channel(slug);
+      setBalance(ch, balance);
+      const problem = redeemProblem(reward, balance, text);
+      if (problem) throw new Error(problem);
+      try {
+        await redeemKickReward(slug, reward.id, this.account.token, reward.inputRequired ? text.trim() : '');
+      } catch (err) {
+        if (err.status === 401 || err.status === 403) this.checkAuth(err).catch(() => {});
+        this.report('bad', `não deu para resgatar "${reward.title}" em #${slug} (${err.message})`, slug);
+        throw err;
+      }
+      setBalance(ch, balance - reward.cost);
+      this.report('good', `resgatou "${reward.title}" em #${slug} por ${reward.cost.toLocaleString('pt-BR')} pontos`, slug);
+      return reward;
+    } finally {
+      this.redeeming = false;
+    }
+  }
+
+  alerts({ offline = false } = {}) {
+    const who = this.account.username;
+    if (this.account.needsRelink) return [{ variant: 'danger', text: `O token da conta ${who} da Kick foi recusado. Cole um token novo em ${this.text.where}.` }];
+    if (offline) return [];
+    if (this.siteFails >= FAILS_ALERT) return [{ variant: 'danger', text: `A Kick está recusando os pedidos da conta ${who}: ${this.siteError}. Os pontos dela podem não estar contando.` }];
+    return [];
+  }
+
+  state() {
+    const live = new Set(this.live.map((l) => l.slug));
+    return {
+      id: this.account.id,
+      login: this.account.username,
+      needsRelink: !!this.account.needsRelink,
+      resting: this.active && this.resting,
+      restUntil: clock(restWindow(`kick:${this.account.id}`).end),
+      profile: this.account.profile ?? null,
+      watching: this.watching,
+      channels: this.all.map((slug) => {
+        const c = this.channel(slug);
+        return {
+          name: slug,
+          live: live.has(slug),
+          watching: this.watches.has(slug),
+          balance: c.balance,
+          gained: c.balance === null ? 0 : Math.max(0, c.balance - c.startBalance),
+          error: this.watches.get(slug)?.error ?? null,
+          followed: (this.account.followed ?? []).includes(slug),
+        };
+      }),
+    };
+  }
+}
+
+// Todas as contas da Kick de um jogo. O login é o token da conta, colado no painel (a Kick não tem login por código).
+// Pokeidle: contas em kick.accounts; LoLdle: em kick.lolidleAccounts. isTaken diz se a conta já está no outro jogo.
+export class KickMiner {
+  constructor({ log, game = 'pokeidle', saved = kick.accounts, isTaken = () => false }) {
+    this.log = log;
+    this.max = game === 'lolidle' ? MAX_LOL_ACCOUNTS : MAX_ACCOUNTS; // Pokeidle 4, LoLdle 5
+    this.game = game;
+    this.text = KICK_GAMES[game];
+    this.saved = saved;
+    this.isTaken = isTaken;
+    this.live = [];
+    this.all = [];
+    this.started = false;
+    this.enabled = true; // jogo ligado em Configurações → Jogos
+    this.accounts = saved.map((a) => this.makeAccount(a));
+  }
+
+  makeAccount(account) {
+    return new KickAccount(account, { log: this.log, game: this.game });
+  }
+
+  has(id) {
+    return this.accounts.some((a) => String(a.account.id) === String(id));
+  }
+
+  start() {
+    this.started = true;
+    if (typeof WebSocket === 'undefined') {
+      if (this.accounts.length) this.log(`${this.text.log}: este Node.js não tem WebSocket (precisa da versão 22 ou mais nova), então o farm da Kick fica desligado`);
+    }
+    else if (this.enabled) for (const a of this.accounts) a.start();
+  }
+
+  // Jogo desligado: as contas param e são trocadas por novas que ainda não começaram (stop é para sempre),
+  // prontas para começar quando o jogo for ligado de novo. Nada é apagado.
+  setEnabled(enabled) {
+    if (enabled === this.enabled) return;
+    this.enabled = enabled;
+    if (enabled) {
+      if (this.started && typeof WebSocket !== 'undefined') for (const a of this.accounts) a.start();
+      return;
+    }
+    for (const a of this.accounts) a.stop();
+    this.accounts = this.accounts.map((a) => this.makeAccount(a.account));
+    for (const a of this.accounts) a.setLive(this.live, this.all);
+    if (this.accounts.length) this.log(`${this.text.log}: ${this.text.name} desligado, contas da Kick paradas`);
+  }
+
+  setLive(list, all) {
+    this.live = list;
+    this.all = all;
+    for (const a of this.accounts) a.setLive(list, all);
+  }
+
+  find(id) {
+    const miner = this.accounts.find((a) => String(a.account.id) === String(id));
+    if (!miner) throw new Error('Conta não encontrada');
+    return miner;
+  }
+
+  // Adiciona (ou atualiza) uma conta a partir do token colado no painel.
+  async addAccount(rawToken) {
+    const token = cleanKickToken(rawToken);
+    if (!token) throw new Error('Cole o token da conta');
+    let user;
+    try {
+      user = await fetchKickUser(token);
+    } catch (err) {
+      throw new Error(err.status === 401 ? 'A Kick recusou esse token. Confira se copiou ele inteiro.' : `Não deu para conferir o token: ${err.message}`);
+    }
+    const existing = this.accounts.find((a) => a.account.id === user.id);
+    if (existing) {
+      existing.updateToken(token, user.username);
+      existing.log('token atualizado');
+      return;
+    }
+    // A Kick só conta 2 lives por conta: a mesma conta nos dois jogos dividiria esse limite (e o mesmo token).
+    const other = this.isTaken(user.id);
+    if (other) throw new Error(`A conta ${user.username} já está em ${other}. Para trocar o token dela, adicione por lá; aqui, use outra conta da Kick.`);
+    if (this.accounts.length >= this.max) throw new Error(`Limite de ${this.max} contas atingido`);
+    const account = { id: user.id, username: user.username, token };
+    this.saved.push(account);
+    saveKick();
+    const miner = this.makeAccount(account);
+    this.accounts.push(miner);
+    miner.setLive(this.live, this.all);
+    if (this.started && this.enabled && typeof WebSocket !== 'undefined') miner.start();
+    miner.log('vinculada');
+  }
+
+  removeAccount(id) {
+    const miner = this.find(id);
+    miner.stop();
+    miner.log('desvinculada');
+    this.accounts.splice(this.accounts.indexOf(miner), 1);
+    this.saved.splice(this.saved.indexOf(miner.account), 1);
+    saveKick();
+  }
+
+  setProfile(id, profile) {
+    this.find(id).account.profile = profile || null;
+    saveKick();
+  }
+
+  profileOf(id) {
+    return this.find(id).account.profile ?? null;
+  }
+
+  get offline() {
+    return this.accounts.some((a) => a.offline);
+  }
+
+  alerts(options) {
+    const list = this.accounts.flatMap((a) => a.alerts(options));
+    // Sem WebSocket as contas nem começam (ver start): sem este aviso, elas ficariam em "Esperando live" para sempre.
+    if (this.accounts.length && typeof WebSocket === 'undefined') {
+      list.push({ variant: 'warning', text: 'Atualize o Node.js para a versão 22 ou mais nova para as contas da Kick juntarem pontos. Nesta versão o farm da Kick fica desligado.' });
+    }
+    return list;
+  }
+
+  state() {
+    return { max: this.max, accounts: this.accounts.map((a) => a.state()) };
+  }
+}

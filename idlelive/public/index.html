@@ -1,0 +1,2750 @@
+<!doctype html>
+<html lang="pt-BR" class="wa-dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IdleLive</title>
+<link rel="icon" href="/favicon.ico">
+<!-- Componentes (Web Awesome) e fonte vêm da internet, com versão fixa. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@awesome.me/webawesome@3.14.0/dist-cdn/styles/webawesome.css">
+<script type="module" src="https://cdn.jsdelivr.net/npm/@awesome.me/webawesome@3.14.0/dist-cdn/webawesome.loader.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
+<style>
+  :root {
+    --twitch: #9147ff;
+    --kick: #53fc18;
+    --orange: #fc5e03;
+    --live: #3ecf6e;
+    /* Vermelho de erro: texto e ícones (--error-text), fundo de contador e aviso (--error-fill). */
+    --error-text: #ff6b6b;
+    --error-fill: #c62828;
+    --sidebar-w: 248px;
+    --wa-font-family-body: 'Montserrat', system-ui, sans-serif;
+    --wa-font-family-heading: 'Montserrat', system-ui, sans-serif;
+    --wa-font-family-longform: 'Montserrat', system-ui, sans-serif;
+  }
+
+  /* Cor de destaque: laranja no geral, roxo na Twitch, verde na Kick. */
+  :root, .brand-orange { --brand: var(--orange); --brand-on: #1f0900; --brand-soft: rgba(252, 94, 3, .14); --brand-text: #ff9a5c; }
+  #page-twitch, .brand-twitch { --brand: var(--twitch); --brand-on: #fff; --brand-soft: rgba(145, 71, 255, .16); --brand-text: #c9a8ff; }
+  #page-kick, #page-lolidle-kick, .brand-kick { --brand: var(--kick); --brand-on: #0b1a05; --brand-soft: rgba(83, 252, 24, .12); --brand-text: #a6ff7f; }
+  :root, #page-twitch, #page-kick, #page-lolidle-kick, .brand-orange, .brand-twitch, .brand-kick {
+    --wa-color-brand-fill-loud: var(--brand);
+    --wa-color-brand-fill-normal: var(--brand-soft);
+    --wa-color-brand-fill-quiet: var(--brand-soft);
+    --wa-color-brand-border-loud: var(--brand);
+    --wa-color-brand-border-normal: var(--brand);
+    --wa-color-brand-border-quiet: var(--brand-soft);
+    --wa-color-brand-on-loud: var(--brand-on);
+    --wa-color-brand-on-normal: var(--brand-text);
+    --wa-color-brand-on-quiet: var(--brand-text);
+    --wa-color-focus: var(--brand);
+    /* O Web Awesome monta o contorno de foco na raiz (sempre laranja): remonta aqui com a cor da seção. */
+    --wa-focus-ring-color: var(--brand);
+    --wa-focus-ring: var(--wa-focus-ring-style, solid) var(--wa-focus-ring-width, .1875rem) var(--brand);
+    --wa-form-control-activated-color: var(--brand);
+  }
+
+  html { background: var(--wa-color-surface-lowered); }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: var(--wa-color-surface-lowered); font-family: 'Montserrat', system-ui, sans-serif; }
+  :not(:defined) { visibility: hidden; }
+  /* Jogo desligado: o "hidden" vale mesmo em quem tem display próprio (links do menu, cards). */
+  [hidden] { display: none !important; }
+  /* Diálogo de confirmação: faixa, ícone e botão na cor da seção (roxo, verde ou laranja). */
+  #confirm-dialog { --width: min(440px, 92vw); }
+  #confirm-dialog::part(dialog) { border-top: 3px solid var(--brand); }
+  .confirm-title { display: flex; align-items: center; gap: var(--wa-space-s); }
+  .confirm-icon {
+    width: 34px; height: 34px; border-radius: 10px; flex: none; display: grid; place-items: center;
+    background: var(--brand-soft); color: var(--brand-text); font-size: 16px;
+  }
+  .confirm-summary {
+    display: flex; align-items: baseline; justify-content: space-between; gap: var(--wa-space-s); margin-bottom: var(--wa-space-m);
+    padding: var(--wa-space-s) var(--wa-space-m); border-radius: 10px; background: var(--brand-soft); border-left: 3px solid var(--brand);
+    font-weight: 600;
+  }
+  .confirm-summary b { color: var(--brand-text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /* As quebras de linha (\n) da mensagem aparecem. */
+  .confirm-text { margin: 0; white-space: pre-line; line-height: 1.5; color: var(--wa-color-text-quiet); }
+
+  .app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; }
+  /* Sidebar recolhida: só os ícones. A classe "anim" só entra no clique, para não animar ao abrir o painel. */
+  /* 76px = margem (8) + borda (1) + padding (12) dos dois lados + 42px do link (ícone de 18 + 12 de cada lado). */
+  .app.nav-collapsed { --sidebar-w: 76px; }
+  .app.anim { transition: grid-template-columns 280ms cubic-bezier(0.22, 1, 0.36, 1); }
+  /* Durante a animação, os textos que ainda não cabem ficam escondidos dentro do menu. */
+  .app.anim .nav { overflow: hidden; }
+
+  /* Sidebar: um cartão solto da borda, com o botão de recolher na beirada. */
+  .sidebar {
+    position: sticky; top: var(--wa-space-xs); z-index: 6; height: calc(100vh - 2 * var(--wa-space-xs)); box-sizing: border-box;
+    margin: var(--wa-space-xs) 0 var(--wa-space-xs) var(--wa-space-xs);
+    display: flex; flex-direction: column; gap: var(--wa-space-2xs); padding: var(--wa-space-m) var(--wa-space-s);
+    background: var(--wa-color-surface-default); border: 1px solid var(--wa-color-surface-border); border-radius: 16px;
+  }
+  .nav-toggle {
+    position: absolute; top: 26px; right: -12px; z-index: 2; width: 24px; height: 24px; padding: 0;
+    display: grid; place-items: center; border-radius: 50%; cursor: pointer;
+    background: var(--wa-color-surface-default); border: 1px solid var(--wa-color-surface-border); color: var(--wa-color-text-quiet);
+  }
+  .nav-toggle:hover { color: var(--wa-color-text-normal); }
+  .nav-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .nav-toggle svg { width: 12px; height: 12px; transition: rotate 280ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .nav-collapsed .nav-toggle svg { rotate: 180deg; }
+  /* 5px à esquerda: o centro do logo (32px) fica na mesma linha do centro dos ícones do menu (12 + 9). */
+  .logo { display: flex; align-items: center; gap: var(--wa-space-xs); padding: var(--wa-space-2xs) 0 var(--wa-space-m) 5px; font-weight: 700; font-size: 18px; overflow: hidden; white-space: nowrap; }
+  /* Ícone em pixel art: "pixelated" mantém os pixels nítidos ao aumentar. */
+  .logo img { width: 32px; height: 32px; image-rendering: pixelated; flex: none; }
+  .nav-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--wa-color-text-quiet); padding: var(--wa-space-m) var(--wa-space-s) var(--wa-space-2xs); overflow: hidden; white-space: nowrap; }
+  .nav a {
+    position: relative; display: flex; align-items: center; gap: var(--wa-space-xs); padding: var(--wa-space-xs) var(--wa-space-s); border-radius: 8px;
+    color: var(--wa-color-text-quiet); text-decoration: none; font-size: 14px; white-space: nowrap;
+  }
+  .nav a:hover { background: var(--wa-color-neutral-fill-quiet); color: var(--wa-color-text-normal); }
+  .nav a.active { background: var(--brand-soft); color: var(--wa-color-text-normal); font-weight: 600; box-shadow: inset 3px 0 0 var(--brand); }
+  .nav a wa-icon { width: 18px; flex: none; }
+  /* Ícones dos jogos, desenhados aqui (o Font Awesome grátis não tem) */
+  .nav-svg { width: 18px; height: 18px; flex: none; }
+  .nav a .count { margin-left: auto; }
+
+  /* Twitch | Kick de cada jogo, em árvore embaixo do jogo aberto. */
+  .nav-group { position: relative; }
+  .nav-sub { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .nav-group:has(> a.active) .nav-sub { grid-template-rows: 1fr; }
+  .nav-sub-list { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: var(--wa-space-3xs);
+    /* A linha da árvore passa embaixo do centro do ícone do jogo (padding do link + metade do ícone). */
+    margin-left: calc(var(--wa-space-s) + 9px); padding-left: var(--wa-space-s); border-left: 1px solid var(--wa-color-surface-border); }
+  .nav-sub-list > :first-child { margin-top: var(--wa-space-2xs); }
+  .nav-sub-list > :last-child { margin-bottom: var(--wa-space-2xs); }
+  .nav-sub-title { display: none; }
+  .nav .nav-sub a { padding: var(--wa-space-xs) var(--wa-space-s); font-size: 13px; }
+  .nav .nav-sub a.active { background: var(--brand-soft); color: var(--brand-text); box-shadow: none; }
+  .nav .nav-sub .brand-logo, .nav .nav-sub wa-icon { width: 14px; }
+
+  /* Recolhida: os textos somem, viram dica ao passar o mouse, e a árvore dos jogos vira um menu flutuante. */
+  .nav-collapsed .logo span, .nav-collapsed .sidebar-foot > :not(.server-status), .nav-collapsed .server-status > :not(.live-dot) { display: none; }
+  .nav-collapsed .server-status { justify-content: center; }
+  .nav-collapsed .nav-label { height: 0; padding: 0; margin: var(--wa-space-s) var(--wa-space-xs); border-top: 1px solid var(--wa-color-surface-border); color: transparent; }
+  /* 18px do ícone + 12px de cada lado (o painel usa border-box: a largura já conta o padding). */
+  .nav-collapsed .nav > a, .nav-collapsed .nav-group > a { box-sizing: border-box; width: 42px; }
+  .nav-collapsed .nav > a .count, .nav-collapsed .nav-group > a .count { display: none; }
+  .nav-text { transition: opacity 160ms ease-out 120ms; }
+  .nav-collapsed .nav-text {
+    position: absolute; left: calc(100% + var(--wa-space-s)); top: 50%; translate: 0 -50%; z-index: 30; pointer-events: none;
+    padding: var(--wa-space-2xs) var(--wa-space-xs); border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--wa-color-text-normal);
+    background: var(--wa-color-surface-raised); border: 1px solid var(--wa-color-surface-border); box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+    opacity: 0; transition: none;
+  }
+  .nav-collapsed .nav > a:is(:hover, :focus-visible) .nav-text { opacity: 1; transition: opacity 120ms ease-out; }
+  .nav-collapsed .nav-group > a .nav-text { display: none; }
+  .nav-collapsed .nav-sub {
+    position: absolute; left: calc(100% + var(--wa-space-s)); top: calc(-1 * var(--wa-space-2xs)); z-index: 30; display: block; min-width: 190px;
+    padding: var(--wa-space-2xs); border-radius: 12px; background: var(--wa-color-surface-raised);
+    border: 1px solid var(--wa-color-surface-border); box-shadow: 0 12px 32px rgba(0, 0, 0, .4);
+    opacity: 0; visibility: hidden; translate: -6px 0;
+    transition: opacity 140ms ease-out, translate 180ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 180ms;
+  }
+  /* Ponte invisível entre o ícone e o menu, para o mouse não "cair" no caminho. */
+  .nav-collapsed .nav-sub::before { content: ''; position: absolute; top: 0; bottom: 0; left: -16px; width: 16px; }
+  .nav-collapsed .nav-group:is(:hover, :focus-within) .nav-sub { opacity: 1; visibility: visible; translate: 0 0; transition-delay: 0s; }
+  .nav-collapsed .nav-sub-list { margin: 0; padding: 0; border: 0; overflow: visible; }
+  .nav-collapsed .nav-sub-list > * { margin: 0; }
+  .nav-collapsed .nav-sub-title { display: block; padding: var(--wa-space-xs) var(--wa-space-s) var(--wa-space-2xs); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--wa-color-text-quiet); }
+  @media (prefers-reduced-motion: reduce) {
+    .app.anim, .nav-toggle svg, .nav-sub, .nav-text, .nav-collapsed .nav-sub { transition: none !important; }
+  }
+  /* Abas Twitch | Kick dentro de cada jogo */
+  .game-tabs { position: relative; display: flex; gap: var(--wa-space-2xs); border-bottom: 1px solid var(--wa-color-surface-border); margin-bottom: var(--wa-space-2xs); }
+  .game-tabs a {
+    display: flex; align-items: center; gap: var(--wa-space-xs); padding: var(--wa-space-s) var(--wa-space-m); margin-bottom: -1px;
+    color: var(--wa-color-text-quiet); text-decoration: none; font-weight: 600; border-bottom: 2px solid transparent;
+  }
+  .game-tabs a:hover { color: var(--wa-color-text-normal); }
+  .game-tabs a.active { color: var(--brand-text); }
+  /* Transitions.dev — Tabs sliding (adaptado: barrinha embaixo em vez de pílula).
+     A barrinha sai da aba de antes e desliza até a nova, mesmo trocando de página (Twitch ↔ Kick). */
+  .tab-ink {
+    position: absolute; left: 0; bottom: -1px; height: 2px; width: 0; background: var(--brand); pointer-events: none;
+    transition: transform 250ms cubic-bezier(0.22, 1, 0.36, 1), width 250ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @media (prefers-reduced-motion: reduce) { .tab-ink { transition: none !important; } }
+  .sidebar-foot { margin-top: auto; padding: var(--wa-space-s) var(--wa-space-s) 0; white-space: nowrap; overflow: hidden; border-top: 1px solid var(--wa-color-surface-border); font-size: 12px; color: var(--wa-color-text-quiet); display: flex; flex-direction: column; gap: var(--wa-space-xs); }
+  .server-status { display: flex; align-items: center; gap: var(--wa-space-xs); }
+  .server-status.down { color: var(--error-text); }
+  .server-status.down .live-dot { background: var(--error-text); box-shadow: none; }
+
+  /* Header */
+  .main { min-width: 0; }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: var(--wa-space-m); flex-wrap: wrap;
+    padding: var(--wa-space-s) var(--wa-space-l); backdrop-filter: blur(10px);
+    background: color-mix(in srgb, var(--wa-color-surface-lowered) 80%, transparent);
+    border-bottom: 1px solid var(--wa-color-surface-border);
+  }
+  header h1 { font-size: 20px; margin: 0; }
+  header .sub { font-size: 13px; color: var(--wa-color-text-quiet); }
+  header .actions { margin-left: auto; display: flex; align-items: center; gap: var(--wa-space-xs); flex-wrap: wrap; }
+  .menu-btn { display: none; }
+
+  /* Sem largura máxima: o conteúdo vai até a mesma margem do cabeçalho (alinhado com o botão Hub). */
+  .content { padding: var(--wa-space-l) var(--wa-space-l) var(--wa-space-3xl); }
+  .page { display: none; flex-direction: column; gap: var(--wa-space-l); }
+  .page.active { display: flex; }
+  h2 { font-size: 15px; margin: 0 0 var(--wa-space-s); display: flex; align-items: center; gap: var(--wa-space-xs); }
+  /* Títulos dos cards centralizados na altura do cabeçalho. */
+  wa-card h2[slot="header"] { margin: 0; min-height: 28px; line-height: 1; }
+  .meta { font-size: 12px; color: var(--wa-color-text-quiet); }
+
+  /* Resumo (visão geral) */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--wa-space-m); }
+  .kpi::part(body) { display: flex; flex-direction: column; gap: var(--wa-space-2xs); }
+  .kpi .label { font-size: 12px; color: var(--wa-color-text-quiet); display: flex; align-items: center; gap: var(--wa-space-xs); }
+  .kpi .value { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .kpi .value small { font-size: 16px; color: var(--wa-color-text-quiet); }
+  .kpi .hint { font-size: 12px; color: var(--wa-color-text-quiet); display: flex; align-items: center; gap: var(--wa-space-xs); flex-wrap: wrap; }
+
+  .grid-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--wa-space-m); }
+
+  /* Listas */
+  .row { display: flex; align-items: center; gap: var(--wa-space-s); padding: var(--wa-space-s) 0; border-bottom: 1px solid var(--wa-color-surface-border); }
+  .row:last-child { border-bottom: none; }
+  .row .name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .platform { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font: 800 12px/1 system-ui; flex: none; }
+  .platform.twitch { background: var(--twitch); color: #fff; }
+  .platform.kick { background: var(--kick); color: #0b1a05; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); box-shadow: 0 0 8px var(--live); flex: none; }
+  #page-kick .live-dot, #page-lolidle-kick .live-dot { background: var(--kick); box-shadow: 0 0 8px var(--kick); }
+  /* Bolinha piscando: a conta ainda não segue o canal (o follow automático vai chegar nele). */
+  .unfollowed { animation: follow-blink 1.1s ease-in-out infinite; }
+  @keyframes follow-blink { 50% { opacity: .2; } }
+  @media (prefers-reduced-motion: reduce) { .unfollowed { animation: none; opacity: .4; } }
+  .empty { color: var(--wa-color-text-quiet); font-size: 13px; padding: var(--wa-space-xs) 0; }
+
+  /* Lives da Visão geral: rolam sem mostrar a barra, com um degradê embaixo indicando que tem mais. */
+  .scroll-list { max-height: 300px; overflow-y: auto; scrollbar-width: none; }
+  .scroll-list.more { mask-image: linear-gradient(to bottom, #000 85%, transparent); }
+  .scroll-list::-webkit-scrollbar { display: none; }
+
+  /* Visão geral: cards dos jogos */
+  .games { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: var(--wa-space-m); }
+  .game::part(body) { display: flex; flex-direction: column; gap: var(--wa-space-m); }
+  .game-head { display: flex; align-items: center; gap: var(--wa-space-xs); }
+  .game-head h2 { margin: 0; }
+  .game-head > wa-button { margin-left: auto; }
+  .game-head .nav-svg { display: block; }
+
+  /* Votar (idlehub) */
+  #votes-warning wa-callout { display: block; margin-bottom: var(--wa-space-s); }
+  .vote-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--wa-space-s); padding: var(--wa-space-s) 0; border-bottom: 1px solid var(--wa-color-surface-border); }
+  .vote-who { flex: 1; min-width: 130px; display: flex; flex-direction: column; gap: var(--wa-space-3xs); }
+  .vote-who b { overflow-wrap: anywhere; }
+  .vote-ready { color: var(--live); }
+  .vote-row wa-select { width: 200px; }
+  .vote-add { display: flex; flex-wrap: wrap; gap: var(--wa-space-xs); margin-top: var(--wa-space-m); }
+  .vote-add wa-input { flex: 1; min-width: 140px; }
+  .vote-add wa-select { width: 200px; }
+  .ov-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--wa-color-text-quiet); margin-bottom: var(--wa-space-2xs); }
+  /* Listas da Visão geral mais compactas que as das páginas. */
+  .ov-acc .row, .ov-live .row { padding: var(--wa-space-xs) 0; }
+  .ov-acc .login { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .ov-acc .today { font-size: 13px; font-weight: 700; color: var(--live); font-variant-numeric: tabular-nums; }
+  .ov-live .who { font-size: 12px; color: var(--brand-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+  .kpi .up { color: var(--live); }
+
+  /* Precisa de você: só aparece quando tem algo para resolver. */
+  .attention .item { display: flex; align-items: center; gap: var(--wa-space-xs); flex-wrap: wrap; padding: var(--wa-space-xs) 0; }
+  .attention .item + .item { border-top: 1px solid var(--wa-color-surface-border); }
+  .attention .item > span { flex: 1; min-width: 200px; }
+  .attention a.meta { margin-left: var(--wa-space-xs); }
+  /* Avisos vazios da Visão geral não ocupam espaço entre os cards. */
+  #page-visao > :empty { display: none; }
+
+  /* Barras dos últimos 7 dias */
+  .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--wa-space-xs); align-items: end; height: 150px; }
+  .week .day { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: var(--wa-space-2xs); height: 100%; min-width: 0; }
+  /* Trilho: ocupa a sobra da coluna, e a barra cresce dentro dele (sem o trilho, o flex achata todas iguais). */
+  .week .track { flex: 1; min-height: 0; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
+  .week .bar { width: 100%; max-width: 44px; border-radius: 6px 6px 2px 2px; background: var(--brand-soft); min-height: 3px; }
+  .week .day.today .bar { background: var(--brand); }
+  .week .val { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--wa-color-text-quiet); white-space: nowrap; }
+  .week .day.today .val { color: var(--wa-color-text-normal); }
+  .week .lbl { font-size: 11px; color: var(--wa-color-text-quiet); }
+  .week-foot { display: flex; gap: var(--wa-space-m); flex-wrap: wrap; margin-top: var(--wa-space-s); }
+  #ov-events .event:last-child { border-bottom: none; }
+
+  /* Espectadores em vermelho, como o contador da Twitch. */
+  .viewers { --wa-color-danger-fill-quiet: rgba(235, 4, 0, .16); --wa-color-danger-border-quiet: rgba(255, 90, 90, .45); --wa-color-danger-on-quiet: var(--error-text); }
+
+  /* Grades: 4 por linha em telas largas (vai para 3, 2, 1 conforme a tela diminui). */
+  .cards { display: grid; gap: var(--wa-space-m); grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); }
+  @media (min-width: 1500px) { .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+  /* Conta de pontos */
+  .account .head { display: flex; align-items: center; gap: var(--wa-space-s); }
+  .account .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--wa-space-2xs); }
+  .account .who wa-badge { align-self: flex-start; }
+  .account .login { font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+  /* Pontos do canal */
+  .points::part(body) { display: flex; flex-direction: column; gap: var(--wa-space-s); }
+  .points .row .balance { font-weight: 700; font-variant-numeric: tabular-nums; }
+  /* Canal offline: bolinha apagada e nome mais fraco. */
+  .points .off-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wa-color-surface-border); flex: none; }
+  .points .row.off .name { color: var(--wa-color-text-quiet); font-weight: 500; }
+  .play-tip { margin: calc(-1 * var(--wa-space-2xs)) 0 var(--wa-space-s); }
+  .points-more { display: flex; justify-content: center; margin-top: auto; }
+  /* Cards das contas do LoLdle: nome, situação e os chats em que a conta está. */
+  .lol-head { display: flex; align-items: center; gap: var(--wa-space-xs); flex-wrap: wrap; }
+  .lol-head .login { font-weight: 700; margin-right: auto; }
+  .lol-chats { display: flex; flex-wrap: wrap; gap: var(--wa-space-2xs) var(--wa-space-m); margin-top: var(--wa-space-s); }
+  .lol-chats > span { display: inline-flex; align-items: center; gap: var(--wa-space-xs); font-weight: 600; }
+  /* Até 4 contas de pontos lado a lado (2 em telas médias, 1 no celular). */
+  .points-grid { display: grid; gap: var(--wa-space-m); grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+  @media (min-width: 1500px) { .points-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .points-grid > .points::part(body) { height: 100%; box-sizing: border-box; }
+  .points.add::part(body) { align-items: center; justify-content: center; min-height: 200px; }
+  .points.add { --wa-panel-border-style: dashed; }
+  /* Janela "Como funciona" dos pontos. */
+  .streak { color: var(--live); font-size: 11px; margin-left: var(--wa-space-2xs); vertical-align: 1px; }
+  .help-btn::part(base) { padding: 0 var(--wa-space-2xs); height: 24px; color: var(--wa-color-text-quiet); }
+  .help-btn:hover::part(base) { color: var(--brand-text); }
+  #farm-help { --width: min(680px, 94vw); }
+  .farm-help { font-size: 14px; line-height: 1.55; display: flex; flex-direction: column; gap: var(--wa-space-l); }
+  .farm-help section { display: flex; flex-direction: column; gap: var(--wa-space-xs); }
+  .farm-help h3 { margin: 0; font-size: 14px; display: flex; align-items: center; gap: var(--wa-space-xs); color: var(--brand-text); }
+  .farm-help p, .farm-help ul { margin: 0; }
+  /* Recuo de 20px nas listas: espaço para o marcador (•, 1., 10.). */
+  .farm-help ul { padding-left: 20px; display: flex; flex-direction: column; gap: var(--wa-space-2xs); }
+  .farm-help table { border-collapse: collapse; font-size: 13px; }
+  .farm-help td { padding: var(--wa-space-2xs) var(--wa-space-m) var(--wa-space-2xs) 0; border-bottom: 1px solid var(--wa-color-surface-border); }
+  .farm-help tr:last-child td { border-bottom: none; }
+  .farm-help td.num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* Janela com todos os canais e seus pontos. */
+  #points-dialog { --width: min(820px, 94vw); }
+  .points-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .points-table th, .points-table td { text-align: left; padding: var(--wa-space-xs) var(--wa-space-s); border-bottom: 1px solid var(--wa-color-surface-border); white-space: nowrap; }
+  .points-table th { font-size: 12px; color: var(--wa-color-text-quiet); font-weight: 500; }
+  .points-table tr:last-child td { border-bottom: none; }
+  .points-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .points-table td.name { font-weight: 600; }
+  .points-table tr.off td.name { color: var(--wa-color-text-quiet); font-weight: 500; }
+  .points-table .quiet { color: var(--wa-color-text-quiet); }
+  .points-table .gained { color: var(--live); font-weight: 600; }
+  .points-wrap { overflow-x: auto; }
+  /* Linha de canal nos cards de pontos: compacta, para o nome do streamer caber inteiro.
+     "Assistindo" vira um ícone e o ganho fica embaixo do saldo. */
+  /* Altura fixa: com ou sem o "+ganho" embaixo do saldo, toda linha (e todo card) fica do mesmo tamanho. */
+  .points-row { gap: var(--wa-space-xs); height: 52px; padding: 0; box-sizing: border-box; }
+  .points-row .name { white-space: nowrap; }
+  .points-row .streak { flex: none; margin-left: calc(-1 * var(--wa-space-2xs)); }
+  .points-row .watch-icon { flex: none; color: var(--brand-text); font-size: 14px; display: grid; place-items: center; }
+  .points-row .watch-icon.error { color: var(--wa-color-warning-fill-loud, #f5a524); }
+  .points-row .amount { flex: none; display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+  .points-row .amount .gained { font-size: 11px; }
+  .points .gained { font-size: 12px; font-weight: 600; color: var(--live); font-variant-numeric: tabular-nums; }
+
+  /* Canais */
+  .channel::part(body) { display: flex; flex-direction: column; gap: var(--wa-space-xs); }
+  .channel .top { display: flex; align-items: center; gap: var(--wa-space-xs); }
+  .channel .top .name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .channel.offline { opacity: .7; }
+  .channel.offline:hover { opacity: 1; }
+  .channel .remove { opacity: .3; transition: opacity .15s; }
+  @media (hover: none) { .channel .remove { opacity: .6; } }
+  .channel:hover .remove { opacity: 1; }
+
+  .toolbar { display: flex; align-items: center; gap: var(--wa-space-xs); flex-wrap: wrap; margin-bottom: var(--wa-space-m); }
+  .toolbar wa-input { flex: 1; min-width: 200px; max-width: 320px; }
+  /* Janela de adicionar conta da Kick */
+  .bookmarklet {
+    display: inline-flex; align-items: center; gap: var(--wa-space-xs); padding: var(--wa-space-xs) var(--wa-space-m); border-radius: 8px; cursor: grab;
+    background: var(--kick); color: #0b1a05; font-weight: 700; text-decoration: none; font-size: 14px;
+  }
+  .bookmarklet:active { cursor: grabbing; }
+  .farm-help h4 { margin: 0; font-size: 14px; }
+  .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: var(--wa-space-xs); font-size: 14px; line-height: 1.5; }
+  .steps code { font-size: 12px; }
+
+  /* Código para vincular conta da Twitch */
+  .code { font: 700 24px/1 ui-monospace, Consolas, monospace; letter-spacing: .14em; color: var(--brand-text); }
+  .link-box { display: flex; align-items: center; gap: var(--wa-space-m); flex-wrap: wrap; }
+  .link-box > div { flex: 1; min-width: 240px; }
+  .link-box a { color: var(--brand-text); }
+
+  /* Botões de acontecimentos no topo (erros e coisas boas), com o número de novos. */
+  .events-btn { position: relative; }
+  .events-btn::part(base) { padding: 0 var(--wa-space-xs); font-size: 18px; }
+  .events-btn.bad { color: var(--error-text); }
+  .events-btn.good { color: var(--live); }
+  /* top/right: posição do número sobre o canto do ícone (ajuste ótico). */
+  .events-count {
+    position: absolute; top: -4px; right: -6px; min-width: 18px; height: 18px; padding: 0 var(--wa-space-2xs); box-sizing: border-box;
+    border-radius: 99px; font: 700 11px/18px 'Montserrat', sans-serif; text-align: center; pointer-events: none;
+  }
+  .events-btn.bad .events-count { background: var(--error-fill); color: #fff; }
+  .events-btn.good .events-count { background: var(--live); color: #062a12; }
+  /* Transitions.dev — Notification badge: entra na diagonal e "estoura" quando chega evento novo. */
+  .events-count.pop {
+    animation: badge-slide 260ms cubic-bezier(0.22, 1, 0.36, 1), badge-pop 500ms cubic-bezier(0.34, 1.36, 0.64, 1);
+  }
+  @keyframes badge-slide { from { translate: -8.2px 12.4px; } }
+  @keyframes badge-pop { from { scale: 0; opacity: 0; filter: blur(2px); } }
+  @media (prefers-reduced-motion: reduce) { .events-count.pop { animation: none; } }
+  /* Transitions.dev — Number subtle change: só os dígitos que mudaram trocam, subindo (ganhou) ou descendo. */
+  .num-anim { display: inline-flex; align-items: baseline; }
+  .num-slot { position: relative; display: inline-block; }
+  .num-new { display: inline-block; animation: num-in 455ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .num-old { position: absolute; inset: 0; text-align: center; pointer-events: none; animation: num-out 455ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  @keyframes num-in { from { transform: translateY(calc(0.3em * var(--num-dir, 1))); opacity: 0; filter: blur(0.042em); } }
+  @keyframes num-out { to { transform: translateY(calc(-0.3em * var(--num-dir, 1))); opacity: 0; filter: blur(0.042em); } }
+
+  /* Logos da Kick e da Twitch (theSVG, versão "mono"): pintados com a cor do texto. */
+  .brand-logo { width: 1em; height: 1em; fill: currentColor; flex: none; }
+  .platform svg { width: 60%; height: 60%; fill: currentColor; }
+
+  /* Mini gráfico dos últimos 7 dias no cartão "Pontos hoje". */
+  .kpi { position: relative; }
+  .kpi .spark { position: absolute; top: 18px; right: 18px; width: 88px; height: 32px; }
+  .kpi .spark svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+  /* Transitions.dev — Skeleton loader and reveal: esboço pulsando até o servidor responder;
+     depois o conteúdo aparece saindo do desfoque. */
+  .skel { display: block; border-radius: 6px; background: var(--wa-color-neutral-fill-quiet); animation: skel-pulse 1000ms ease-in-out infinite; }
+  .skel.round { border-radius: 50%; flex: none; }
+  .skel-row { display: flex; align-items: center; gap: var(--wa-space-s); }
+  @keyframes skel-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+  .revealing { animation: skel-reveal 400ms ease-in-out both; }
+  @keyframes skel-reveal { from { opacity: 0; filter: blur(2px); } }
+
+  /* Transitions.dev — Shimmer text: um brilho passa pelo texto enquanto o painel espera algo. */
+  .shimmer { position: relative; display: inline-block; }
+  .shimmer::before {
+    content: attr(data-text); position: absolute; inset: 0; pointer-events: none;
+    background-image: linear-gradient(90deg, transparent 0%, transparent 40%, rgba(255, 255, 255, .9) 50%, transparent 60%, transparent 100%);
+    background-size: 400% 100%; background-repeat: no-repeat;
+    -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
+    animation: shimmer 2000ms linear infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0% 0; } }
+
+  /* Transitions.dev — Error state shake: o campo treme e fica vermelho quando o valor não serve. */
+  .shake { animation: shake 280ms linear; }
+  @keyframes shake {
+    0% { transform: translateX(0); animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+    28.57% { transform: translateX(6px); animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+    57.14% { transform: translateX(-6px); animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+    78.57% { transform: translateX(4px); animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+    100% { transform: translateX(0); }
+  }
+  wa-input::part(base) { transition: border-color 280ms ease-out; }
+  wa-input.is-error::part(base) { border-color: var(--wa-color-danger-fill-loud); }
+
+  /* Resgate feito: o "carregando" do botão vira um ✓ que se desenha, e sai confete do botão. */
+  .redeem-done { animation: check-pop 500ms cubic-bezier(0.34, 1.36, 0.64, 1); }
+  .check-draw { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .check-draw path { stroke-dasharray: 24; stroke-dashoffset: 24; animation: check-draw 420ms cubic-bezier(0.65, 0, 0.35, 1) 80ms forwards; }
+  @keyframes check-pop { from { scale: .85; } }
+  @keyframes check-draw { to { stroke-dashoffset: 0; } }
+  .confetti { position: fixed; width: 7px; height: 11px; border-radius: 2px; pointer-events: none; z-index: 10000; }
+  .smoke { position: fixed; border-radius: 50%; pointer-events: none; z-index: 10000; background: var(--wa-color-neutral-fill-normal); filter: blur(6px); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skel, .revealing, .shake, .redeem-done { animation: none !important; }
+    .shimmer::before { animation: none !important; }
+    .check-draw path { animation: none; stroke-dashoffset: 0; }
+  }
+  /* Lista na gaveta da direita. */
+  .event-day { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--wa-color-text-quiet); margin: var(--wa-space-m) 0 var(--wa-space-2xs); }
+  .event-day:first-child { margin-top: 0; }
+  .event { display: flex; gap: var(--wa-space-xs); align-items: flex-start; padding: var(--wa-space-xs) 0; border-bottom: 1px solid var(--wa-color-surface-border); font-size: 13px; line-height: 1.4; }
+  .event .icon { flex: none; width: 18px; padding-top: var(--wa-space-3xs); text-align: center; }
+  .event.bad .icon { color: var(--error-text); }
+  .event.good .icon { color: var(--live); }
+  .event .body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .event .who { font-weight: 600; }
+  .event .when { flex: none; font-size: 12px; color: var(--wa-color-text-quiet); font-variant-numeric: tabular-nums; }
+  .event.new { background: linear-gradient(90deg, var(--brand-soft), transparent 60%); }
+
+  /* Avisos no topo de todas as páginas. */
+  #alerts { display: flex; flex-direction: column; gap: var(--wa-space-xs); }
+  #alerts:not(:empty) { margin-bottom: var(--wa-space-l); }
+
+  /* Botão ▶ das linhas de pontos: discreto, aparece mais forte no hover. */
+  .play { flex: none; }
+  .play::part(base) { padding: 0 var(--wa-space-2xs); height: 24px; color: var(--wa-color-text-quiet); }
+  .play:hover::part(base) { color: var(--brand-text); }
+
+  /* Loja: recompensas de um canal da Twitch. */
+  #rewards-dialog { --width: min(800px, 94vw); }
+  /* Contas em colunas iguais: todas numa linha (até 4); em tela estreita, 2 por linha. */
+  .shop-accounts { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: var(--wa-space-xs); margin-bottom: var(--wa-space-2xs); }
+  .shop-accounts wa-button { width: 100%; min-width: 0; }
+  .shop-accounts wa-button::part(base) { width: 100%; padding-inline: var(--wa-space-xs); }
+  .shop-accounts wa-button::part(label) { display: flex; gap: var(--wa-space-2xs); min-width: 0; overflow: hidden; }
+  .shop-accounts .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shop-accounts .bal { flex: none; opacity: .85; }
+  .shop-accounts .meta { grid-column: 1 / -1; }
+  .shop-filters { display: flex; gap: var(--wa-space-xs); flex-wrap: wrap; margin: var(--wa-space-s) 0 var(--wa-space-3xs); }
+  .reward { display: flex; gap: var(--wa-space-s); align-items: flex-start; padding: var(--wa-space-s) 0; border-bottom: 1px solid var(--wa-color-surface-border); }
+  .reward:last-child { border-bottom: none; }
+  .reward.unavailable .pic, .reward.unavailable .info { opacity: .55; }
+  .reward .pic { width: 44px; height: 44px; border-radius: 8px; flex: none; display: grid; place-items: center; background: var(--brand-soft); }
+  .reward .pic img { width: 28px; height: 28px; }
+  .reward .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--wa-space-2xs); }
+  .reward .title { font-weight: 600; overflow-wrap: anywhere; }
+  .reward .desc { font-size: 13px; color: var(--wa-color-text-quiet); overflow-wrap: anywhere; white-space: pre-line; }
+  .reward .tags { display: flex; gap: var(--wa-space-2xs); flex-wrap: wrap; }
+  .reward .buy { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: var(--wa-space-xs); }
+  .reward .cost { font-weight: 700; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: var(--wa-space-2xs); white-space: nowrap; }
+  .reward .cost img { width: 16px; height: 16px; }
+  .reward .why { font-size: 12px; color: var(--wa-color-text-quiet); text-align: right; }
+  .reward .buy-row { display: flex; gap: var(--wa-space-xs); align-items: center; }
+  .reward .qty { width: 72px; }
+  @media (max-width: 520px) {
+    .reward { flex-wrap: wrap; }
+    .reward .buy { width: 100%; flex-direction: row; justify-content: space-between; align-items: center; }
+  }
+  @media (max-width: 640px) { .shop-accounts { --cols: 2 !important; } }
+
+  /* Histórico de pontos */
+  .history { overflow-x: auto; }
+  .history table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .history th, .history td { text-align: left; padding: var(--wa-space-xs) var(--wa-space-s); border-bottom: 1px solid var(--wa-color-surface-border); white-space: nowrap; }
+  .history th { font-size: 12px; color: var(--wa-color-text-quiet); font-weight: 500; }
+  .history tr:last-child td { border-bottom: none; }
+  .history .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .history td.none { color: var(--wa-color-text-quiet); }
+  .history td.total { font-weight: 700; }
+  .history .detail { display: block; font-size: 11px; color: var(--wa-color-text-quiet); }
+
+  .settings { display: flex; flex-direction: column; gap: var(--wa-space-m); max-width: 680px; }
+  .settings wa-card::part(body) { display: flex; flex-direction: column; gap: var(--wa-space-m); }
+  .setting-row { display: flex; align-items: center; gap: var(--wa-space-s); flex-wrap: wrap; }
+  .setting-row > span { flex: 1; min-width: 200px; }
+
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 20;
+    background: var(--error-fill); color: #fff; padding: var(--wa-space-s) var(--wa-space-m); border-radius: 10px; display: none;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .4); font-size: 14px;
+  }
+  .toast.info { background: #2b2d36; border: 1px solid var(--wa-color-surface-border); }
+
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; }
+    .app > .sidebar { display: none; }
+    .menu-btn { display: inline-flex; }
+    header, .content { padding-left: var(--wa-space-m); padding-right: var(--wa-space-m); }
+    .grid-2 { grid-template-columns: 1fr; }
+    header .actions wa-switch { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <script>
+    // Sidebar recolhida da última vez: aplica antes de desenhar, para não abrir aberta e fechar na frente do jogador.
+    try { if (localStorage.getItem('navCollapsed') === '1') document.currentScript.parentElement.classList.add('nav-collapsed'); } catch {}
+  </script>
+  <aside class="sidebar">
+    <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Recolher menu" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+    <div class="logo"><img src="/favicon.ico" alt=""><span>IdleLive</span></div>
+    <nav class="nav" id="nav">
+      <a href="#visao" data-page="visao"><wa-icon name="gauge-high"></wa-icon><span class="nav-text">Visão geral</span></a>
+      <div class="nav-label" data-nav-games>Jogos</div>
+      <div class="nav-group"><a href="#twitch" data-page="twitch" data-pages="twitch kick"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12a10 10 0 0 1 20 0z" fill="#e3350d"/><path d="M2 12a10 10 0 0 0 20 0z" fill="#f2f2f2"/><g fill="none" stroke="#16181d" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></g><circle cx="12" cy="12" r="3.2" fill="#f2f2f2" stroke="#16181d" stroke-width="1.6"/></svg><span class="nav-text">Pokeidle</span> <wa-badge class="count" variant="success" pill data-count="pokeidle" hidden></wa-badge></a><div class="nav-sub"><div class="nav-sub-list"><div class="nav-sub-title">Pokeidle</div><a href="#twitch" data-page="twitch" class="brand-twitch"><wa-icon family="brands" name="twitch"></wa-icon>Twitch <wa-badge class="count" variant="success" pill data-count="twitch" hidden></wa-badge></a><a href="#kick" data-page="kick" class="brand-kick"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>Kick <wa-badge class="count" variant="success" pill data-count="kick" hidden></wa-badge></a></div></div></div>
+      <div class="nav-group"><a href="#lolidle" data-page="lolidle" data-pages="lolidle lolidle-kick"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="#c28f2c" d="m1.912 0 1.212 2.474v19.053L1.912 24h14.73l1.337-4.682H8.33V0ZM12 1.516c-.913 0-1.798.112-2.648.312v1.74a9.738 9.738 0 0 1 2.648-.368c5.267 0 9.536 4.184 9.536 9.348a9.203 9.203 0 0 1-2.3 6.086l-.273.954-.602 2.112c2.952-1.993 4.89-5.335 4.89-9.122C23.25 6.468 18.213 1.516 12 1.516Zm0 2.673c-.924 0-1.814.148-2.648.414v13.713h8.817a8.246 8.246 0 0 0 2.36-5.768c0-4.617-3.818-8.359-8.529-8.359zM2.104 7.312A10.858 10.858 0 0 0 .75 12.576c0 1.906.492 3.7 1.355 5.266z"/></svg><span class="nav-text">LoLdle</span> <wa-badge class="count" variant="success" pill data-count="lolidle-all" hidden></wa-badge></a><div class="nav-sub"><div class="nav-sub-list"><div class="nav-sub-title">LoLdle</div><a href="#lolidle" data-page="lolidle" class="brand-twitch"><wa-icon family="brands" name="twitch"></wa-icon>Twitch <wa-badge class="count" variant="success" pill data-count="lolidle" hidden></wa-badge></a><a href="#lolidle-kick" data-page="lolidle-kick" class="brand-kick"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>Kick <wa-badge class="count" variant="success" pill data-count="lolidle-kick" hidden></wa-badge></a></div></div></div>
+      <div class="nav-label" data-nav-games>Auxiliar</div>
+      <a href="#votos" data-page="votos"><wa-icon name="check-to-slot"></wa-icon><span class="nav-text">Votar</span> <wa-badge class="count" variant="success" pill data-count="votos" hidden></wa-badge></a>
+      <div class="nav-label">Acompanhar</div>
+      <a href="#historico" data-page="historico"><wa-icon name="chart-column"></wa-icon><span class="nav-text">Histórico</span></a>
+      <a href="#config" data-page="config"><wa-icon name="gear"></wa-icon><span class="nav-text">Configurações</span></a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="server-status" id="server-status"><span class="live-dot"></span><span class="shimmer" data-text="Conectando…">Conectando…</span></div>
+      <span id="server-host"></span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header>
+      <wa-button class="menu-btn" appearance="plain" id="menu-btn"><wa-icon name="bars" label="Menu"></wa-icon></wa-button>
+      <div>
+        <h1 id="page-title">Visão geral</h1>
+        <div class="sub" id="page-sub"></div>
+      </div>
+      <div class="actions">
+        <wa-button class="events-btn bad" appearance="plain" size="small" data-action="events" data-kind="bad" title="Erros da Twitch e da Kick">
+          <wa-icon name="bug" label="Erros"></wa-icon><span class="events-count" data-events-count="bad" hidden></span></wa-button>
+        <wa-button class="events-btn good" appearance="plain" size="small" data-action="events" data-kind="good" title="Baús, Momentos, raids, follows e resgates">
+          <wa-icon name="gift" label="Baús, Momentos, raids, follows e resgates"></wa-icon><span class="events-count" data-events-count="good" hidden></span></wa-button>
+        <wa-switch size="small" data-autostart>Iniciar com o Windows</wa-switch>
+        <wa-button variant="brand" appearance="outlined" size="small" data-restart hidden><wa-icon slot="start" name="rotate-right"></wa-icon>Reiniciar servidor</wa-button>
+        <wa-button variant="brand" size="small" href="https://pokeidleguide.io/#hunt" target="_blank"><wa-icon slot="end" name="arrow-up-right-from-square"></wa-icon>Hub</wa-button>
+      </div>
+    </header>
+
+    <div class="content">
+      <div id="alerts"></div>
+      <!-- Visão geral -->
+      <section class="page" id="page-visao">
+        <div class="kpis" id="kpis"></div>
+        <div id="attention"></div>
+        <div id="ov-votes"></div>
+        <!-- Um card por jogo, na mesma ordem do menu. -->
+        <div class="games">
+          <wa-card class="game" data-game-card="pokeidle">
+            <div slot="header" class="game-head"><span data-game-icon="twitch"></span><h2>Pokeidle</h2>
+              <wa-badge variant="success" pill data-count="pokeidle" hidden></wa-badge>
+              <wa-button size="small" appearance="plain" href="#twitch">Abrir<wa-icon slot="end" name="arrow-right"></wa-icon></wa-button></div>
+            <div id="ov-pokeidle"></div>
+          </wa-card>
+          <wa-card class="game" data-game-card="lolidle">
+            <div slot="header" class="game-head"><span data-game-icon="lolidle"></span><h2>LoLdle</h2>
+              <wa-badge variant="success" pill data-count="lolidle-all" hidden></wa-badge>
+              <wa-button size="small" appearance="plain" href="#lolidle">Abrir<wa-icon slot="end" name="arrow-right"></wa-icon></wa-button></div>
+            <div id="ov-lolidle"></div>
+          </wa-card>
+        </div>
+        <div class="grid-2" id="ov-more">
+          <wa-card>
+            <div slot="header" class="game-head"><wa-icon name="chart-column"></wa-icon><h2>Pontos nos últimos 7 dias</h2>
+              <wa-button size="small" appearance="plain" href="#historico">Histórico<wa-icon slot="end" name="arrow-right"></wa-icon></wa-button></div>
+            <div id="ov-week"></div>
+          </wa-card>
+          <wa-card>
+            <div slot="header" class="game-head"><wa-icon name="gift"></wa-icon><h2>Últimos acontecimentos</h2>
+              <wa-button size="small" appearance="plain" data-action="events" data-kind="good">Ver todos<wa-icon slot="end" name="arrow-right"></wa-icon></wa-button></div>
+            <div id="ov-events"></div>
+          </wa-card>
+        </div>
+      </section>
+
+      <!-- Twitch -->
+      <section class="page" id="page-twitch">
+        <nav class="game-tabs">
+          <a href="#twitch" class="brand-twitch active"><wa-icon family="brands" name="twitch"></wa-icon>Twitch <wa-badge class="count" variant="success" pill data-count="twitch" hidden></wa-badge></a>
+          <a href="#kick" class="brand-kick"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>Kick <wa-badge class="count" variant="success" pill data-count="kick" hidden></wa-badge></a>
+        </nav>
+        <div>
+          <h2><wa-icon name="coins"></wa-icon>Pontos do canal
+            <wa-button class="help-btn" appearance="plain" size="small" data-action="farm-help" title="Como funciona o farm de pontos"><wa-icon name="circle-info" label="Como funciona"></wa-icon></wa-button></h2>
+          <div id="points-link"></div>
+          <div class="meta play-tip" hidden><wa-icon name="store"></wa-icon> abre a loja do canal para resgatar as recompensas por aqui; <wa-icon name="play"></wa-icon> abre a live no navegador, na conta certa.</div>
+          <div class="points-grid" id="points"></div>
+        </div>
+        <div>
+          <div class="toolbar">
+            <h2 style="margin:0">Canais parceiros</h2>
+            <wa-radio-group orientation="horizontal" value="all" size="small" data-filter="twitch">
+              <wa-radio appearance="button" value="all">Todos</wa-radio>
+              <wa-radio appearance="button" value="live">Ao vivo</wa-radio>
+              <wa-radio appearance="button" value="offline">Offline</wa-radio>
+            </wa-radio-group>
+            <wa-input placeholder="Nome do canal" size="small" data-add="twitch"><wa-icon slot="start" name="plus"></wa-icon></wa-input>
+            <wa-button size="small" variant="brand" appearance="outlined" data-action="add-channel" data-platform="twitch">Adicionar</wa-button>
+          </div>
+          <div class="cards" id="twitch-channels"></div>
+        </div>
+      </section>
+
+      <!-- Kick -->
+      <section class="page" id="page-kick">
+        <nav class="game-tabs">
+          <a href="#twitch" class="brand-twitch"><wa-icon family="brands" name="twitch"></wa-icon>Twitch <wa-badge class="count" variant="success" pill data-count="twitch" hidden></wa-badge></a>
+          <a href="#kick" class="brand-kick active"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>Kick <wa-badge class="count" variant="success" pill data-count="kick" hidden></wa-badge></a>
+        </nav>
+        <div>
+          <h2><wa-icon name="coins"></wa-icon>Pontos do canal
+            <wa-button class="help-btn" appearance="plain" size="small" data-action="kick-help" title="Como funciona o farm na Kick"><wa-icon name="circle-info" label="Como funciona"></wa-icon></wa-button></h2>
+          <div class="meta play-tip" hidden><wa-icon name="store"></wa-icon> abre a loja do canal para resgatar as recompensas por aqui; <wa-icon name="play"></wa-icon> abre a live no navegador, na conta certa.</div>
+          <div class="points-grid" id="kick-points"></div>
+        </div>
+        <div>
+          <div class="toolbar">
+            <h2 style="margin:0">Canais parceiros</h2>
+            <wa-radio-group orientation="horizontal" value="all" size="small" data-filter="kick">
+              <wa-radio appearance="button" value="all">Todos</wa-radio>
+              <wa-radio appearance="button" value="live">Ao vivo</wa-radio>
+              <wa-radio appearance="button" value="offline">Offline</wa-radio>
+            </wa-radio-group>
+            <wa-input placeholder="Nome do canal da Kick" size="small" data-add="kick"><wa-icon slot="start" name="plus"></wa-icon></wa-input>
+            <wa-button size="small" variant="brand" appearance="outlined" data-action="add-channel" data-platform="kick">Adicionar</wa-button>
+          </div>
+          <div class="cards" id="kick-channels"></div>
+        </div>
+      </section>
+
+      <!-- LoLdle -->
+      <section class="page brand-twitch" id="page-lolidle">
+        <nav class="game-tabs">
+          <a href="#lolidle" class="brand-twitch active"><wa-icon family="brands" name="twitch"></wa-icon>Twitch <wa-badge class="count" variant="success" pill data-count="lolidle" hidden></wa-badge></a>
+          <a href="#lolidle-kick" class="brand-kick"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>Kick <wa-badge class="count" variant="success" pill data-count="lolidle-kick" hidden></wa-badge></a>
+        </nav>
+        <div>
+          <h2><wa-icon name="comments"></wa-icon>Contas no chat</h2>
+          <p class="meta" style="margin-top:calc(-1 * var(--wa-space-2xs))">Cada conta entra em silêncio no chat dos canais do LoLdle que estão ao vivo e sai quando a live acaba. Não manda mensagem e não assiste a live.</p>
+          <div id="lol-link"></div>
+          <div class="points-grid" id="lol-accounts"></div>
+        </div>
+        <div>
+          <div class="toolbar">
+            <h2 style="margin:0">Canais do LoLdle</h2>
+            <wa-input placeholder="Nome do canal da Twitch" size="small" data-add="lolidle"><wa-icon slot="start" name="plus"></wa-icon></wa-input>
+            <wa-button size="small" variant="brand" appearance="outlined" data-action="add-channel" data-platform="lolidle">Adicionar</wa-button>
+          </div>
+          <div class="cards" id="lol-channels"></div>
+        </div>
+      </section>
+
+      <!-- LoLdle: Kick -->
+      <section class="page" id="page-lolidle-kick">
+        <nav class="game-tabs">
+          <a href="#lolidle" class="brand-twitch"><wa-icon family="brands" name="twitch"></wa-icon>Twitch <wa-badge class="count" variant="success" pill data-count="lolidle" hidden></wa-badge></a>
+          <a href="#lolidle-kick" class="brand-kick active"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>Kick <wa-badge class="count" variant="success" pill data-count="lolidle-kick" hidden></wa-badge></a>
+        </nav>
+        <div>
+          <h2><wa-icon name="coins"></wa-icon>Pontos do canal
+            <wa-button class="help-btn" appearance="plain" size="small" data-action="kick-help" title="Como funciona o farm na Kick"><wa-icon name="circle-info" label="Como funciona"></wa-icon></wa-button></h2>
+          <p class="meta" style="margin-top:calc(-1 * var(--wa-space-2xs))">Igual ao Pokeidle na Kick: cada conta assiste em segundo plano até 2 lives dos canais do LoLdle e junta os pontos do canal para você resgatar o bônus. Use contas diferentes das do Pokeidle.</p>
+          <div class="meta play-tip" hidden><wa-icon name="store"></wa-icon> abre a loja do canal para resgatar as recompensas por aqui; <wa-icon name="play"></wa-icon> abre a live no navegador, na conta certa.</div>
+          <div class="points-grid" id="lolkick-points"></div>
+        </div>
+        <div>
+          <div class="toolbar">
+            <h2 style="margin:0">Canais do LoLdle</h2>
+            <wa-radio-group orientation="horizontal" value="all" size="small" data-filter="lolkick">
+              <wa-radio appearance="button" value="all">Todos</wa-radio>
+              <wa-radio appearance="button" value="live">Ao vivo</wa-radio>
+              <wa-radio appearance="button" value="offline">Offline</wa-radio>
+            </wa-radio-group>
+            <wa-input placeholder="Nome do canal da Kick" size="small" data-add="lolkick"><wa-icon slot="start" name="plus"></wa-icon></wa-input>
+            <wa-button size="small" variant="brand" appearance="outlined" data-action="add-channel" data-platform="lolkick">Adicionar</wa-button>
+          </div>
+          <div class="cards" id="lolkick-channels"></div>
+        </div>
+      </section>
+
+      <!-- Votar no idlehub -->
+      <section class="page" id="page-votos">
+        <div>
+        <h2><wa-icon name="check-to-slot"></wa-icon>Votos no idlehub.io
+          <wa-button class="help-btn" appearance="plain" size="small" data-action="vote-help" title="Como funcionam os votos"><wa-icon name="circle-info" label="Como funciona"></wa-icon></wa-button></h2>
+        <div id="votes-warning"></div>
+        <div class="games">
+          <wa-card data-game-card="pokeidle">
+            <div slot="header" class="game-head"><span data-game-icon="twitch"></span><h2>Pokeidle</h2>
+              <wa-badge variant="success" pill data-votes-ready="pokeidle" hidden></wa-badge>
+              <wa-button size="small" variant="brand" appearance="outlined" data-action="vote-all" data-vote-game="pokeidle" title="Abre a página de voto de todos os nicks que já podem votar"><wa-icon slot="start" name="check-double"></wa-icon>Abrir todos</wa-button></div>
+            <div id="votes-pokeidle"></div>
+            <div class="vote-add">
+              <wa-input size="small" placeholder="Nick no Pokeidle" data-vote-player="pokeidle" maxlength="32"><wa-icon slot="start" name="user"></wa-icon></wa-input>
+              <wa-select size="small" data-vote-new-profile="pokeidle" value="none"></wa-select>
+              <wa-button size="small" variant="brand" data-action="vote-add" data-vote-game="pokeidle">Adicionar</wa-button>
+            </div>
+          </wa-card>
+          <wa-card data-game-card="lolidle">
+            <div slot="header" class="game-head"><span data-game-icon="lolidle"></span><h2>LoLdle</h2>
+              <wa-badge variant="success" pill data-votes-ready="lolidle" hidden></wa-badge>
+              <wa-button size="small" variant="brand" appearance="outlined" data-action="vote-all" data-vote-game="lolidle" title="Abre a página de voto de todos os nicks que já podem votar"><wa-icon slot="start" name="check-double"></wa-icon>Abrir todos</wa-button></div>
+            <div id="votes-lolidle"></div>
+            <div class="vote-add">
+              <wa-input size="small" placeholder="Nick no LoLdle" data-vote-player="lolidle" maxlength="32"><wa-icon slot="start" name="user"></wa-icon></wa-input>
+              <wa-select size="small" data-vote-new-profile="lolidle" value="none"></wa-select>
+              <wa-button size="small" variant="brand" data-action="vote-add" data-vote-game="lolidle">Adicionar</wa-button>
+            </div>
+          </wa-card>
+        </div>
+        </div>
+      </section>
+
+      <!-- Histórico -->
+      <section class="page" id="page-historico">
+        <wa-card>
+          <h2 slot="header"><wa-icon name="coins"></wa-icon>Pontos ganhos por dia</h2>
+          <div class="history" id="history"></div>
+        </wa-card>
+        <wa-card>
+          <h2 slot="header"><wa-icon name="chart-pie"></wa-icon>De onde vieram os pontos (últimos 7 dias)</h2>
+          <div class="history" id="history-reasons"></div>
+        </wa-card>
+      </section>
+
+      <!-- Configurações -->
+      <section class="page" id="page-config">
+        <div class="settings">
+          <wa-card>
+            <h2 slot="header"><wa-icon name="gamepad"></wa-icon>Jogos</h2>
+            <div class="meta">Desligue o jogo que você não joga. Ele some do menu, da Visão geral e do Histórico, e as contas dele param até você ligar de novo. Nada é apagado: contas, canais e histórico continuam guardados.</div>
+            <div id="games-status"></div>
+            <wa-switch data-game="pokeidle" hint="Pontos do canal nas lives dos parceiros, na Twitch e na Kick">Pokeidle</wa-switch>
+            <wa-switch data-game="lolidle" hint="Contas da Twitch no chat e pontos do canal na Kick, nas lives dos parceiros">LoLdle</wa-switch>
+          </wa-card>
+          <wa-card>
+            <h2 slot="header"><wa-icon name="sliders"></wa-icon>Geral</h2>
+            <wa-switch data-autostart hint="Abre o painel minimizado quando o PC liga">Iniciar com o Windows</wa-switch>
+            <wa-divider></wa-divider>
+            <div class="setting-row">
+              <span>Reiniciar o servidor para carregar atualizações. As contas de pontos param por alguns segundos e voltam sozinhas.</span>
+              <wa-button variant="brand" appearance="outlined" size="small" data-restart hidden><wa-icon slot="start" name="rotate-right"></wa-icon>Reiniciar</wa-button>
+            </div>
+            <wa-divider></wa-divider>
+            <div class="setting-row">
+              <span id="update-status">Versão</span>
+              <wa-button variant="brand" appearance="outlined" size="small" data-action="update-check"><wa-icon slot="start" name="arrows-rotate"></wa-icon>Procurar atualização</wa-button>
+            </div>
+          </wa-card>
+          <wa-card data-game-card="pokeidle lolidle">
+            <h2 slot="header"><wa-icon name="window-maximize"></wa-icon>Navegador e perfis</h2>
+            <div class="meta">O botão <wa-icon name="play"></wa-icon> dos pontos abre a live no navegador para você resgatar as recompensas. Para ela abrir já logada na conta certa, escolha o perfil do navegador em que cada conta está logada. Sem escolher, a live pode abrir logada na conta errada.</div>
+            <div class="setting-row"><span>Navegador</span><wa-select size="small" id="browser-select" style="min-width:220px"></wa-select></div>
+            <div class="meta">Trocar de navegador apaga os perfis escolhidos abaixo, porque cada navegador tem os seus.</div>
+            <wa-divider></wa-divider>
+            <div data-game-card="pokeidle">
+              <b class="brand-twitch" style="color:var(--brand-text)"><wa-icon family="brands" name="twitch"></wa-icon> Pokeidle · Contas da Twitch</b>
+              <div id="twitch-profiles"></div>
+              <wa-divider></wa-divider>
+              <b class="brand-kick" style="color:var(--brand-text)"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg> Pokeidle · Contas da Kick</b>
+              <div id="kick-profiles"></div>
+            </div>
+            <div data-game-card="lolidle">
+              <wa-divider></wa-divider>
+              <b class="brand-kick" style="color:var(--brand-text)"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg> LoLdle · Contas da Kick</b>
+              <div id="lolkick-profiles"></div>
+            </div>
+          </wa-card>
+          <wa-card data-game-card="pokeidle lolidle">
+            <h2 slot="header"><svg class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>App da Kick (opcional)</h2>
+            <div id="kick-app-status"></div>
+            <div class="meta">Sem o app, o painel vê quem está ao vivo na Kick perguntando canal por canal (a cada 2 minutos). Com o app, é um pedido só a cada minuto. Para criar: <b>kick.com → Configurações → Desenvolvedor</b> (Redirect URL: <code>http://localhost</code>), depois cole os dados. Não mostre o Client Secret para ninguém.</div>
+            <form id="kick-app-form" style="display:flex;flex-direction:column;gap:var(--wa-space-s)">
+              <wa-input label="Client ID" size="small" id="kick-client-id" autocomplete="off"></wa-input>
+              <wa-input label="Client Secret" type="password" password-toggle size="small" id="kick-client-secret" autocomplete="off"></wa-input>
+              <div><wa-button variant="brand" size="small" type="submit">Salvar</wa-button></div>
+            </form>
+          </wa-card>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<wa-drawer id="drawer" placement="start" label="IdleLive" style="--size: 280px"></wa-drawer>
+<wa-drawer id="events-drawer" placement="end" style="--size: min(440px, 100vw)">
+  <div class="meta" id="events-intro" style="margin-bottom:var(--wa-space-s)"></div>
+  <div id="events-list"></div>
+</wa-drawer>
+<wa-dialog id="vote-help" label="Como funcionam os votos" class="brand-orange" light-dismiss>
+  <div class="farm-help">
+    <section>
+      <h3><wa-icon name="check-to-slot"></wa-icon>O que o botão faz</h3>
+      <p>Cada botão <b>Votar</b> abre a página de voto do idlehub.io no perfil do navegador escolhido, já com o nick preenchido. Lá é só clicar em <b>Votar</b>.</p>
+    </section>
+    <section>
+      <h3><wa-icon name="right-to-bracket"></wa-icon>Primeira vez</h3>
+      <p>Entre com o Google ou o Discord no idlehub.io em cada perfil do navegador. O login fica guardado e não precisa entrar de novo.</p>
+    </section>
+    <section>
+      <h3><wa-icon name="clock"></wa-icon>A cada 24 h</h3>
+      <p>O idlehub aceita um voto por conta a cada 24 h. O painel avisa quando cada nick libera de novo, contando da última vez que você abriu a página de voto.</p>
+    </section>
+  </div>
+</wa-dialog>
+
+<wa-dialog id="farm-help" label="Como funciona o farm de pontos" class="brand-twitch" light-dismiss>
+  <div class="farm-help">
+    <section>
+      <h3><wa-icon name="eye"></wa-icon>O que o painel faz</h3>
+      <p>Cada conta vinculada fica "assistindo" as lives dos canais oficiais sem abrir nenhum vídeo na tela. A Twitch dá os pontos como se você estivesse vendo, e o painel pega sozinho tudo o que aparece.</p>
+    </section>
+
+    <section>
+      <h3><wa-icon name="coins"></wa-icon>De onde vêm os pontos</h3>
+      <table>
+        <tr><td>Tempo assistido</td><td class="num">+10 a cada 5 min</td></tr>
+        <tr><td>Baú de pontos (a cada ~15 min assistidos)</td><td class="num">+50</td></tr>
+        <tr><td>Sequência (assistir lives seguidas do canal)</td><td class="num">+300 a +450</td></tr>
+        <tr><td>Momentos (quando o streamer solta um)</td><td class="num">varia</td></tr>
+        <tr><td>Raid de um parceiro para outro</td><td class="num">varia</td></tr>
+      </table>
+      <p class="meta">Na prática, uns 320 pontos por hora em cada live que a conta assiste. Os valores de sequência, Momentos e raid são os que a comunidade observa; a Twitch não divulga.</p>
+    </section>
+
+    <section>
+      <h3><wa-icon name="list-ol"></wa-icon>Quais lives cada conta assiste</h3>
+      <p>A Twitch só conta tempo assistido em <b>2 lives ao mesmo tempo por conta</b>. Por isso cada conta escolhe 2, nesta ordem:</p>
+      <ul>
+        <li><b>Raid:</b> se a conta estava numa live que fez raid para outro parceiro, ela vai junto e fica uns 5 minutos lá.</li>
+        <li><b>Sequência:</b> uns 7 minutos de cada live nova, para não perder a sequência daquele canal. Quando ela é garantida, aparece um <span class="streak"><wa-icon name="check"></wa-icon></span> verde ao lado do canal.</li>
+        <li><b>Mais pontos:</b> no resto do tempo, as lives onde a conta já tem mais pontos.</li>
+      </ul>
+      <p>Nas outras lives a conta não ganha nada naquele momento. Baús só aparecem nas lives que ela está assistindo.</p>
+    </section>
+
+    <section>
+      <h3><wa-icon name="moon"></wa-icon>Para parecer uma pessoa</h3>
+      <ul>
+        <li><b>Descanso diário:</b> das 5h às 8h (Brasília) as contas param, como quem vai dormir. Cada conta dorme e acorda até 20 minutos antes ou depois, num horário que muda todo dia. São 3 horas para quebrar o padrão de 24 horas por dia; isso custa uns 12% dos pontos, porque ainda tem parceiro ao vivo nesse horário.</li>
+        <li><b>Sem pressa:</b> baús e Momentos são pegos depois de uma espera aleatória de 5 a 40 segundos, e a troca de live também demora um pouco.</li>
+        <li><b>Cada conta no seu ritmo:</b> as contas não começam nem trocam de live ao mesmo tempo, e os tempos mudam um pouco a cada vez.</li>
+        <li><b>Menos consultas:</b> o saldo das lives assistidas é lido a cada 5–10 minutos e o resto a cada ~30, como um navegador.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h3><wa-icon name="power-off"></wa-icon>O painel precisa estar aberto</h3>
+      <p>Só farma com o PC ligado e a janela preta aberta (e fora do horário de descanso). Com o painel fechado, nada conta. Ative <b>Iniciar com o Windows</b> para ele abrir sozinho quando o PC liga.</p>
+    </section>
+
+    <section>
+      <h3><wa-icon name="gift"></wa-icon>Resgatar o bônus de XP</h3>
+      <p>O botão <wa-icon name="store"></wa-icon> ao lado de cada canal abre a <b>loja</b> dele: as recompensas, a descrição e o preço de cada uma. Escolha a conta e clique em <b>Resgatar</b>. O painel pede confirmação antes, porque resgate não tem volta, e nunca resgata sozinho.</p>
+      <p>O botão <wa-icon name="play"></wa-icon> abre a live no navegador, para resgatar por lá. Para abrir já logado na conta certa, escolha o perfil de cada conta em <b>Configurações → Navegador e perfis</b>.</p>
+    </section>
+
+    <section>
+      <h3><wa-icon name="chart-column"></wa-icon>Ganho e histórico</h3>
+      <ul>
+        <li>O <b>"+ganho"</b> dos cards conta desde que o painel abriu e zera ao reiniciar.</li>
+        <li>A página <b>Histórico</b> guarda os pontos por dia e de onde vieram, por 30 dias.</li>
+        <li>Gastar pontos não aparece como perda: depois de um resgate, o "+ganho" continua mostrando o que a conta ganhou.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h3><wa-icon name="triangle-exclamation"></wa-icon>Riscos</h3>
+      <ul>
+        <li>Juntar pontos sem assistir de verdade <b>vai contra os termos da Twitch</b>. Punição não é comum, mas pode acontecer, e o risco é o mesmo de qualquer farm de pontos.</li>
+        <li>Todas as contas saem do mesmo PC e da mesma internet, então a Twitch consegue ver que elas estão juntas.</li>
+        <li>O painel usa um canal da Twitch que não é público. Se a Twitch mudar algo, aparece um <b>aviso no topo</b> e aquela parte para até o painel ser atualizado.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h3><wa-icon name="link"></wa-icon>Login das contas</h3>
+      <p>O login é pelo código oficial da Twitch (o mesmo de TV), sem senha. Ele se renova sozinho. Se uma conta aparecer como <b>Vincule de novo</b>, é só confirmar o código outra vez. Os logins ficam só no seu PC, no <code>points.json</code>; não mostre esse arquivo para ninguém.</p>
+    </section>
+  </div>
+</wa-dialog>
+<wa-dialog id="kick-add" label="Adicionar conta da Kick" class="brand-kick" light-dismiss>
+  <div class="farm-help">
+    <p>A Kick não tem login por código como a Twitch. A conta entra pelo <b>token</b> dela, que fica no navegador onde você está logado na Kick.</p>
+    <section>
+      <h4>Jeito fácil: favorito</h4>
+      <ol class="steps">
+        <li>Mostre a barra de favoritos do navegador (<b>Ctrl+Shift+B</b>) e <b>arraste</b> este botão para ela (só na primeira vez):
+          <div style="margin:var(--wa-space-xs) 0"><a class="bookmarklet" id="kick-bookmarklet" href="#">⚡ Enviar para o IdleLive</a></div></li>
+        <li>Abra <b>kick.com</b> no perfil do navegador da conta, já logado.</li>
+        <li>Clique no favorito <b>Enviar para o IdleLive</b>. O painel abre e pergunta se pode adicionar a conta.</li>
+      </ol>
+      <p class="meta">Repita os passos 2 e 3 em cada perfil. Também serve para trocar o token de uma conta que já está aqui.</p>
+    </section>
+    <section>
+      <h4>Jeito manual</h4>
+      <ol class="steps">
+        <li>Abra <b>kick.com</b> no navegador, logado na conta que quer adicionar.</li>
+        <li>Aperte <b>F12</b> e vá na aba <b>Application</b> (ou <b>Aplicativo</b>).</li>
+        <li>No menu da esquerda, abra <b>Cookies → https://kick.com</b>.</li>
+        <li>Copie o valor de <code>session_token</code> e cole abaixo.</li>
+      </ol>
+      <p class="meta">Também serve o valor do cabeçalho <code>Authorization</code> de qualquer pedido do kick.com (aba Network). O token fica só no seu PC, no <code>kick.json</code>. Não mostre ele para ninguém: quem tem o token entra na conta.</p>
+    </section>
+    <form id="kick-add-form" style="display:flex;flex-direction:column;gap:var(--wa-space-s)">
+      <wa-input label="Token da conta" type="password" password-toggle id="kick-token" autocomplete="off"></wa-input>
+      <div><wa-button variant="brand" type="submit" id="kick-add-save">Adicionar</wa-button></div>
+    </form>
+  </div>
+</wa-dialog>
+<wa-dialog id="kick-help" label="Como funciona o farm na Kick" class="brand-kick" light-dismiss>
+  <div class="farm-help">
+    <section>
+      <h3><wa-icon name="eye"></wa-icon>O que o painel faz</h3>
+      <p>Cada conta avisa a Kick, em segundo plano e de tempos em tempos, que está assistindo, do mesmo jeito que o player do site faz. Nenhum vídeo é aberto na tela.</p>
+    </section>
+    <section>
+      <h3><wa-icon name="list-ol"></wa-icon>Quais lives cada conta assiste</h3>
+      <p>Até <b>2 lives por conta</b> ao mesmo tempo (mais que isso a Kick começa a bloquear), sempre as lives onde a conta já tem mais pontos.</p>
+      <p>Na Kick os pontos vêm do tempo assistido e de um bônus ao seguir o canal: não tem baú, sequência nem Momentos.</p>
+    </section>
+    <section>
+      <h3><wa-icon name="moon"></wa-icon>Mesmas travas da Twitch</h3>
+      <p>Descanso das 5h às 8h (Brasília), tempos aleatórios, cada conta no seu ritmo e poucas consultas de saldo. A explicação completa está na ajuda (ícone ⓘ) ao lado de <b>Pontos do canal</b>, em <b>Pokeidle → Twitch</b>.</p>
+    </section>
+    <section>
+      <h3><wa-icon name="power-off"></wa-icon>O painel precisa estar aberto</h3>
+      <p>Só farma com o PC ligado e a janela preta aberta (e fora do horário de descanso). Ative <b>Iniciar com o Windows</b> em Configurações para ele abrir sozinho.</p>
+    </section>
+    <section>
+      <h3><wa-icon name="gift"></wa-icon>Resgatar as recompensas</h3>
+      <p>O botão <wa-icon name="store"></wa-icon> ao lado de cada canal abre a <b>loja</b> dele, com as recompensas do Pokeidle. Escolha a conta e clique em <b>Resgatar</b>. O painel pede confirmação antes e nunca resgata sozinho.</p>
+      <p>O botão <wa-icon name="play"></wa-icon> abre a live no navegador, para resgatar por lá. Para abrir já logado na conta certa, escolha o perfil de cada conta em <b>Configurações → Navegador e perfis</b>.</p>
+      <p>Para adicionar uma conta, use <b>+ Adicionar conta</b> nos cards acima.</p>
+    </section>
+    <section>
+      <h3><wa-icon name="triangle-exclamation"></wa-icon>Riscos</h3>
+      <ul>
+        <li>Farmar pontos sem assistir de verdade pode ir contra as regras da Kick. Não se conhece uma regra pública dela sobre isso.</li>
+        <li>O mais comum na Kick é bloquear o IP por excesso de pedidos. Se acontecer, aparece um aviso no topo.</li>
+        <li>O token dá acesso à conta. Se você sair da conta no navegador, o token pode parar de valer; aí o card pede um token novo.</li>
+      </ul>
+    </section>
+  </div>
+</wa-dialog>
+<wa-dialog id="points-dialog" label="Pontos do canal" class="brand-twitch" light-dismiss><div class="points-wrap" id="points-all"></div></wa-dialog>
+<wa-dialog id="rewards-dialog" label="Loja" class="brand-twitch" light-dismiss><div id="rewards"></div></wa-dialog>
+<wa-dialog id="confirm-dialog" label="Confirmar" light-dismiss>
+  <span slot="label" class="confirm-title"><span class="confirm-icon"><wa-icon id="confirm-icon" name="circle-question"></wa-icon></span><span id="confirm-title"></span></span>
+  <div id="confirm-summary" class="confirm-summary" hidden><span id="confirm-what"></span><b id="confirm-how-much"></b></div>
+  <p id="confirm-text" class="confirm-text"></p>
+  <wa-button slot="footer" appearance="plain" data-dialog="close">Cancelar</wa-button>
+  <wa-button slot="footer" variant="brand" appearance="outlined" id="confirm-alt" hidden></wa-button>
+  <wa-button slot="footer" variant="brand" id="confirm-yes" autofocus>Confirmar</wa-button>
+</wa-dialog>
+<div class="toast" id="toast"></div>
+<div id="no-ui" style="position:fixed;inset:0;display:none;place-items:center;padding:24px;font:16px/1.5 system-ui,sans-serif;color:#eee;background:#111;text-align:center">
+  <div><b>O visual do painel não carregou.</b><br>Ele vem da internet: confira a conexão e recarregue a página (F5).<br>O farm continua rodando na janela preta.</div>
+</div>
+
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  const $$ = (sel) => [...document.querySelectorAll(sel)];
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  let state = null;
+  const filters = { twitch: 'all', kick: 'all', lolidle: 'all', lolkick: 'all' };
+
+  // Contas de pontos: 'twitch' e 'kick' são do Pokeidle; 'lolkick' são as contas da Kick do LoLdle.
+  const isKick = (platform) => platform === 'kick' || platform === 'lolkick';
+  const brandOf = (platform) => (isKick(platform) ? 'kick' : 'twitch');
+  const accountsOf = (platform) => ({ twitch: state?.points?.accounts, kick: state?.kick?.points?.accounts, lolkick: state?.lolidle?.kick?.points?.accounts })[platform] ?? [];
+  const kickChannelsOf = (platform) => (platform === 'lolkick' ? state.lolidle?.kick?.channels : state.kick.channels) ?? [];
+  // Rotas das contas: /api/points/<login> na Twitch, /api/kick/accounts/<id> na Kick e /api/lolkick/accounts/<id> no LoLdle.
+  const accountPath = (platform, key) => platform === 'twitch' ? `points/${encodeURIComponent(key)}` : `${platform}/accounts/${encodeURIComponent(key)}`;
+  // Onde cada conta é adicionada, para os textos ("Adicione uma conta em …").
+  const whereOf = (platform) => ({ twitch: 'Pokeidle → Twitch', kick: 'Pokeidle → Kick', lolkick: 'LoLdle → Kick' })[platform];
+
+  const fmt = (n) => n.toLocaleString('pt-BR');
+  const sortChannels = (list) => [...list].sort((a, b) => b.live - a.live || b.viewers - a.viewers || a.name.localeCompare(b.name));
+
+  // Só troca o HTML quando muda, para não fechar menus abertos nem piscar a cada atualização.
+  // Com um menu (⋮) ou seletor aberto ali dentro, espera ele fechar: trocar o HTML fecharia o menu.
+  function setHTML(el, html) {
+    if (el._html === html) return;
+    if (el.querySelector('wa-dropdown[open], wa-select[open]')) return;
+    el._html = html;
+    el.innerHTML = html;
+    // Saiu do esboço do primeiro carregamento: o conteúdo aparece saindo do desfoque.
+    if ('skel' in el.dataset) {
+      delete el.dataset.skel;
+      el.classList.add('revealing');
+      el.addEventListener('animationend', () => el.classList.toggle('revealing', false), { once: true });
+    }
+  }
+
+  // Esboço dos cards enquanto o servidor não responde pela primeira vez.
+  const skel = (w, h = 12, round = false) => `<span class="skel${round ? ' round' : ''}" style="width:${w};height:${h}px"></span>`;
+  const repeat = (n, html) => Array.from({ length: n }, () => html).join('');
+  const SKELETONS = {
+    kpis: repeat(4, `<wa-card class="kpi">${skel('45%')}${skel('55%', 28)}${skel('75%')}</wa-card>`),
+    cards: repeat(6, `<wa-card class="channel"><div class="top">${skel('50%', 16)}<span style="flex:1"></span>${skel('84px', 20)}</div></wa-card>`),
+    accounts: repeat(2, `<wa-card class="points"><div class="skel-row">${skel('40px', 40, true)}${skel('35%', 16)}</div>
+      <div style="display:flex;flex-direction:column;gap:var(--wa-space-s);margin-top:var(--wa-space-m)">${repeat(3, `<div class="skel-row">${skel('55%', 14)}<span style="flex:1"></span>${skel('56px', 14)}</div>`)}</div></wa-card>`),
+    list: `<div style="display:flex;flex-direction:column;gap:var(--wa-space-s)">${repeat(4, skel('100%', 14))}</div>`,
+  };
+  for (const [id, kind] of Object.entries({ kpis: 'kpis', points: 'accounts', 'kick-points': 'accounts', 'lol-accounts': 'accounts', 'lolkick-points': 'accounts',
+    'twitch-channels': 'cards', 'kick-channels': 'cards', 'lol-channels': 'cards', 'lolkick-channels': 'cards', 'ov-week': 'list', 'ov-events': 'list' })) {
+    const el = $(id);
+    if (!el) continue;
+    el.innerHTML = SKELETONS[kind];
+    el.dataset.skel = '';
+  }
+
+  // ---------- Servidor ----------
+
+  async function api(method, path, body) {
+    let res;
+    try {
+      res = await fetch(`/api/${path}`, {
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      setServerStatus(false);
+      return;
+    }
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      toast('O servidor respondeu algo inesperado. Tente de novo em alguns segundos.');
+      return;
+    }
+    if (!res.ok) {
+      toast(data.error || 'Algo deu errado');
+      return;
+    }
+    state = data;
+    setServerStatus(true);
+    render();
+    return true;
+  }
+
+  function setServerStatus(up) {
+    $('server-status').classList.toggle('down', !up);
+    $('server-status').lastElementChild.className = ''; // tira o brilho do "Conectando…"
+    $('server-status').lastElementChild.textContent = up ? 'Servidor rodando' : 'Servidor fora do ar';
+  }
+
+  // type: 'error' (vermelho) ou 'info' (sucesso e dicas).
+  function toast(msg, type = 'error') {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.toggle('info', type === 'info');
+    el.style.display = 'block';
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => (el.style.display = 'none'), 4000);
+  }
+
+  // Confirmação no próprio painel, no lugar do confirm() do navegador. Responde true só no botão de confirmar;
+  // Cancelar, Esc ou clique fora respondem false. danger = ícone de aviso (não dá para desfazer).
+  // summary = [o quê, quanto], em destaque acima do texto (ex.: recompensa e preço).
+  // A cor segue a seção aberta, ou brand ('twitch', 'kick', 'orange') quando a ação é de outra plataforma.
+  // alt = texto de um segundo botão (escolha entre duas opções): ele responde 'alt'.
+  let confirmDone = null;
+  function ask({ title, text, ok = 'Confirmar', danger = false, brand, summary, alt }) {
+    confirmDone?.(false); // uma pergunta nova fecha a anterior como "não"
+    const dialog = $('confirm-dialog');
+    const page = document.querySelector('.page.active')?.id ?? '';
+    brand ??= /kick/.test(page) ? 'kick' : /twitch|lolidle/.test(page) ? 'twitch' : 'orange';
+    dialog.className = `brand-${brand}`;
+    dialog.label = title;
+    $('confirm-title').textContent = title;
+    $('confirm-icon').name = danger ? 'triangle-exclamation' : 'circle-question';
+    $('confirm-summary').hidden = !summary;
+    [$('confirm-what').textContent, $('confirm-how-much').textContent] = summary ?? ['', ''];
+    $('confirm-text').textContent = text;
+    $('confirm-yes').textContent = ok;
+    $('confirm-alt').textContent = alt ?? '';
+    $('confirm-alt').hidden = !alt;
+    dialog.open = true;
+    return new Promise((resolve) => {
+      confirmDone = (answer) => {
+        confirmDone = null;
+        dialog.open = false;
+        resolve(answer);
+      };
+    });
+  }
+  $('confirm-yes').addEventListener('click', () => confirmDone?.(true));
+  $('confirm-alt').addEventListener('click', () => confirmDone?.('alt'));
+  // O wa-hide de menus e dicas lá dentro também sobe até aqui: só conta o do próprio diálogo.
+  $('confirm-dialog').addEventListener('wa-hide', (e) => e.target === e.currentTarget && confirmDone?.(false));
+
+  const viewersBadge = (c) => c.live
+    ? `<wa-badge class="viewers" variant="danger" appearance="filled-outlined" pill><wa-icon name="user" slot="start"></wa-icon>${fmt(c.viewers)} assistindo</wa-badge>`
+    : '<wa-badge variant="neutral" appearance="outlined" pill>offline</wa-badge>';
+
+  // ---------- Render ----------
+
+  function render() {
+    const twitchLive = state.channels.filter((c) => c.live);
+    const kick = state.kick;
+    const kickLive = kick.channels.filter((c) => c.live);
+
+    $$('[data-count="twitch"]').forEach((b) => { b.textContent = `${twitchLive.length} ao vivo`; b.hidden = !twitchLive.length; });
+    $$('[data-count="kick"]').forEach((b) => { b.textContent = `${kickLive.length} ao vivo`; b.hidden = !kickLive.length; });
+    const pokeLive = twitchLive.length + kickLive.length;
+    $$('[data-count="pokeidle"]').forEach((b) => { b.textContent = `${pokeLive} ao vivo`; b.hidden = !pokeLive; });
+    $$('[data-autostart]').forEach((s) => (s.checked = !!state.autostart));
+    $$('[data-restart]').forEach((b) => (b.hidden = !state.canRestart));
+
+    renderGames();
+    renderOverview(twitchLive, kickLive);
+    renderTwitch();
+    renderPoints();
+    renderKick();
+    renderLolidle();
+    renderLolidleKick();
+    renderKickPoints();
+    // Dica do ▶ só enquanto o jogador ainda não usou e já tem conta.
+    let tipSeen = false;
+    try {
+      tipSeen = localStorage.getItem('playTipSeen') === '1';
+    } catch {}
+    const hasAccounts = ['twitch', 'kick', 'lolkick'].some((p) => accountsOf(p).length);
+    $$('.play-tip').forEach((t) => (t.hidden = tipSeen || !hasAccounts));
+    renderShop();
+    renderHistory();
+    renderAlerts();
+    renderEvents();
+    renderConfig();
+    renderVotes();
+    animateNumbers();
+    placeInks();
+  }
+
+  // Números que mudaram desde a última atualização: anima só os dígitos novos.
+  // Funciona com setHTML: o elemento só é recriado quando o valor muda, e cada um é visto uma vez (_num).
+  const lastNums = new Map();
+  const calmMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const digitsOf = (s) => Number(s.replace(/\D/g, '')) || 0;
+  function animateNumbers() {
+    const before = new Map(lastNums);
+    for (const el of $$('[data-num]')) {
+      if (el._num) continue;
+      el._num = true;
+      const text = el.textContent;
+      const old = before.get(el.dataset.num);
+      lastNums.set(el.dataset.num, text);
+      if (old === undefined || old === text || calmMotion.matches) continue;
+      // O sinal ("+") fica parado; o resto alinha pela direita, porque o número cresce para a esquerda (999 → 1.000).
+      const sign = text.match(/^\D*/)[0];
+      const fixed = old.startsWith(sign) ? sign : '';
+      const size = Math.max(text.length, old.length) - fixed.length;
+      const a = old.slice(fixed.length).padStart(size);
+      const b = text.slice(fixed.length).padStart(size);
+      el.style.setProperty('--num-dir', digitsOf(text) >= digitsOf(old) ? 1 : -1);
+      el.textContent = fixed;
+      el.classList.add('num-anim');
+      for (let i = size - (text.length - fixed.length); i < size; i++) {
+        if (a[i] === b[i]) {
+          el.append(b[i]);
+          continue;
+        }
+        const slot = document.createElement('span');
+        slot.className = 'num-slot';
+        const out = document.createElement('span');
+        out.className = 'num-old';
+        out.ariaHidden = 'true';
+        out.textContent = a[i].trim();
+        const into = document.createElement('span');
+        into.className = 'num-new';
+        into.textContent = b[i];
+        slot.append(out, into);
+        el.append(slot);
+      }
+      // Terminou: volta a ser texto simples (sem o dígito velho escondido).
+      el.addEventListener('animationend', () => {
+        el.textContent = text;
+        el.classList.toggle('num-anim', false);
+      }, { once: true });
+    }
+  }
+
+  // ---------- Jogos ligados (Configurações → Jogos) ----------
+
+  // Servidor antigo não manda "games": tudo ligado.
+  const gameOn = (game) => state?.games?.[game] !== false;
+  // Jogo de cada página. O Histórico só tem pontos do canal, que são do Pokeidle.
+  const PAGE_GAME = { twitch: 'pokeidle', kick: 'pokeidle', historico: 'pokeidle', lolidle: 'lolidle', 'lolidle-kick': 'lolidle' };
+  // A página de votos tem os dois jogos: some só com os dois desligados.
+  const pageOn = (page) => (page === 'votos' ? gameOn('pokeidle') || gameOn('lolidle') : !PAGE_GAME[page] || gameOn(PAGE_GAME[page]));
+  // Os acontecimentos do LoLdle começam com "LoLdle:"; o resto é do Pokeidle.
+  const eventGame = (e) => (/^loldle:/i.test(e.text) ? 'lolidle' : 'pokeidle');
+  const visibleEvents = (kind) => (state.events?.[kind] ?? []).filter((e) => gameOn(eventGame(e)));
+  let gameBusy = false; // pedido de ligar/desligar em andamento: não desfaz o clique na atualização de 5 s
+
+  function renderGames() {
+    $$('.nav a[data-page]').forEach((a) => (a.hidden = !pageOn(a.dataset.page)));
+    $$('[data-nav-games]').forEach((l) => (l.hidden = !gameOn('pokeidle') && !gameOn('lolidle')));
+    $$('[data-game-card]').forEach((c) => (c.hidden = !c.dataset.gameCard.split(' ').some(gameOn)));
+    $('ov-more').hidden = !gameOn('pokeidle');
+    if (!gameBusy) {
+      $$('[data-game]').forEach((sw) => {
+        sw.checked = gameOn(sw.dataset.game);
+        sw.disabled = !state.games;
+      });
+    }
+    setHTML($('games-status'), state.games ? ''
+      : '<wa-callout variant="neutral" size="small"><wa-icon slot="icon" name="circle-info"></wa-icon>Reinicie o servidor para ligar e desligar os jogos.</wa-callout>');
+    // Estava na página de um jogo que acabou de ser desligado: volta para a Visão geral.
+    if (!pageOn(location.hash.slice(1))) show('visao');
+  }
+
+  async function toggleGame(sw) {
+    const { game } = sw.dataset;
+    const name = game === 'pokeidle' ? 'Pokeidle' : 'LoLdle';
+    const enabled = sw.checked;
+    gameBusy = true; // enquanto pergunta, a atualização de 5 s não religa a chave
+    if (!enabled && !(await ask({
+      title: `Desligar o ${name}?`,
+      text: 'Ele some do painel e as contas dele param até você ligar de novo. Nada é apagado.',
+      ok: 'Desligar', danger: true,
+    }))) {
+      gameBusy = false;
+      sw.checked = true;
+      return;
+    }
+    const ok = await api('PUT', 'games', { game, enabled });
+    gameBusy = false;
+    if (!ok) sw.checked = !enabled;
+    else toast(`${name} ${enabled ? 'ligado' : 'desligado'}`, 'info');
+    if (state) render();
+  }
+
+  // ---------- Visão geral ----------
+
+  // Dia no mesmo formato do histórico (AAAA-MM-DD no horário local). offset -1 = ontem.
+  const dayKeyOf = (offset = 0) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return d.toLocaleDateString('sv-SE');
+  };
+  // Pontos de um dia do histórico: { total, accounts: { login: total }, reasons: { motivo: { points, count } } }.
+  // Vem do histórico (e não do "+ganho" dos cards) para não zerar quando o painel reinicia.
+  function dayPoints(key) {
+    const d = (state.pointsHistory ?? []).find((x) => x.day === key);
+    const out = { total: 0, accounts: {}, reasons: {} };
+    for (const [login, reasons] of Object.entries(d?.accounts ?? {})) {
+      out.accounts[login] = sumPoints(reasons);
+      out.total += out.accounts[login];
+      for (const [code, r] of Object.entries(reasons)) {
+        const e = (out.reasons[code] ??= { points: 0, count: 0 });
+        e.points += r.points;
+        e.count += r.count;
+      }
+    }
+    return out;
+  }
+
+  // Todas as contas dos dois jogos, com uma situação só: problem, resting, working, waiting ou connecting.
+  function overviewAccounts() {
+    const points = (list, p) => (list ?? []).map((a) => ({ game: 'pokeidle', p, a,
+      status: a.needsRelink ? 'problem' : a.resting ? 'resting' : a.watching?.length ? 'working' : 'waiting' }));
+    const lol = (state.lolidle?.accounts ?? []).map((a) => ({ game: 'lolidle', p: 'twitch', a,
+      status: a.needsRelink ? 'problem' : !a.connected ? 'connecting' : a.joined?.length ? 'working' : 'waiting' }));
+    // Contas da Kick do LoLdle: juntam pontos como as do Pokeidle (p 'kick' para o logo; key 'lolkick' para as ações).
+    const lolKick = points(accountsOf('lolkick'), 'kick').map((x) => ({ ...x, game: 'lolidle', key: 'lolkick' }));
+    return [...points(state.points?.accounts, 'twitch'), ...points(state.kick.points?.accounts, 'kick'), ...lol, ...lolKick];
+  }
+
+  // Logos "mono" do theSVG (thesvg.org). As marcas são da Twitch e da Kick; aqui só indicam a plataforma.
+  const LOGO_PATHS = {
+    twitch: 'M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z',
+    kick: 'M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z',
+  };
+  const platformLogo = (p) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${LOGO_PATHS[p] ?? LOGO_PATHS.twitch}"/></svg>`;
+  const platformMark = (p) => `<span class="platform ${p}" title="${p === 'kick' ? 'Kick' : 'Twitch'}">${platformLogo(p)}</span>`;
+  const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
+
+  function renderOverview(twitchLive, kickLive) {
+    const accounts = overviewAccounts().filter((x) => gameOn(x.game));
+    const today = dayPoints(dayKeyOf());
+    const yesterday = dayPoints(dayKeyOf(-1));
+    renderOverviewKpis(accounts, today, yesterday, twitchLive, kickLive);
+    renderAttention(accounts);
+    renderOverviewVotes();
+    // Os cards dos jogos desligados ficam escondidos (renderGames); não precisa desenhar.
+    if (gameOn('pokeidle')) {
+      renderOverviewPokeidle(accounts, today, twitchLive, kickLive);
+      renderOverviewWeek();
+      renderOverviewEvents();
+    }
+    if (gameOn('lolidle')) renderOverviewLolidle(accounts);
+  }
+
+  function renderOverviewKpis(accounts, today, yesterday, twitchLive, kickLive) {
+    const farming = accounts.filter((x) => x.game === 'pokeidle');
+    const count = (status) => accounts.filter((x) => x.status === status).length;
+    const poke = gameOn('pokeidle');
+    const lol = gameOn('lolidle');
+    const lolLive = lol ? [...(state.lolidle?.channels ?? []), ...(state.lolidle?.kick?.channels ?? [])].filter((c) => c.live).length : 0;
+    const pokeLive = poke ? twitchLive.length + kickLive.length : 0;
+    const r = today.reasons;
+    const extras = [
+      r.CLAIM && plural(r.CLAIM.count, 'baú', 'baús'),
+      r.COMMUNITY_MOMENT && plural(r.COMMUNITY_MOMENT.count, 'Momento', 'Momentos'),
+      r.RAID && plural(r.RAID.count, 'raid', 'raids'),
+    ].filter(Boolean);
+    const diff = today.total - yesterday.total;
+
+    // Pontos, baús e Momentos são só do Pokeidle: com ele desligado, esses dois cartões saem.
+    setHTML($('kpis'), `${poke ? `
+      <wa-card class="kpi"><span class="label"><wa-icon name="coins"></wa-icon>Pontos hoje</span>${sparkline()}
+        ${farming.length || today.total
+          ? `<span class="value" data-num="kpi-today">+${fmt(today.total)}</span>
+             <span class="hint">${yesterday.total ? `ontem: +${fmt(yesterday.total)}${diff > 0 ? ` · <span class="up">já passou</span>` : ''}` : 'Twitch e Kick, todas as contas'}</span>`
+          : '<span class="value">–</span><span class="hint">Nenhuma conta juntando pontos</span>'}</wa-card>` : ''}
+      <wa-card class="kpi"><span class="label"><wa-icon name="users"></wa-icon>Contas trabalhando</span>
+        ${accounts.length
+          ? `<span class="value"><span data-num="kpi-working">${count('working')}</span><small>/${accounts.length}</small></span>
+             <span class="hint">${[count('resting') && `${count('resting')} descansando`, count('waiting') && `${count('waiting')} esperando live`,
+               count('connecting') && `${count('connecting')} conectando`].filter(Boolean).join(' · ') || 'todas ativas'}
+               ${count('problem') ? `<wa-badge variant="danger" pill>${plural(count('problem'), 'precisa', 'precisam')} de você</wa-badge>` : ''}</span>`
+          : '<span class="value">–</span><span class="hint">Nenhuma conta vinculada</span>'}</wa-card>
+      ${poke ? `<wa-card class="kpi"><span class="label"><wa-icon name="gift"></wa-icon>Baús e Momentos hoje</span>
+        <span class="value" data-num="kpi-chests">${fmt((r.CLAIM?.count ?? 0) + (r.COMMUNITY_MOMENT?.count ?? 0))}</span>
+        <span class="hint">${extras.join(' · ') || 'Pegos sozinhos nas lives da Twitch'}</span></wa-card>` : ''}
+      <wa-card class="kpi"><span class="label"><span class="live-dot"></span>Lives agora</span>
+        <span class="value" data-num="kpi-live">${pokeLive + lolLive}</span>
+        <span class="hint">${[poke && `Pokeidle ${pokeLive}`, lol && `LoLdle ${lolLive}`].filter(Boolean).join(' · ') || 'Nenhum jogo ligado'}</span></wa-card>`);
+  }
+
+  // Linha dos pontos dos últimos 7 dias, no canto do "Pontos hoje" (o mesmo dado das barras da semana).
+  function sparkline() {
+    const vals = Array.from({ length: 7 }, (_, i) => dayPoints(dayKeyOf(i - 6)).total);
+    const max = Math.max(...vals);
+    if (!max) return '';
+    const [W, H, pad] = [88, 32, 3];
+    const pts = vals.map((v, i) => [Math.round((i * (W - pad * 2)) / 6 + pad), Math.round(H - pad - (v / max) * (H - pad * 2))]);
+    const line = pts.map((p) => p.join(',')).join(' ');
+    const [lx, ly] = pts[6];
+    return `<span class="spark" title="Pontos dos últimos 7 dias"><svg viewBox="0 0 ${W} ${H}" aria-hidden="true">
+      <defs><linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--live);stop-opacity:.35"/><stop offset="1" style="stop-color:var(--live);stop-opacity:0"/></linearGradient></defs>
+      <polygon points="${pad},${H} ${line} ${W - pad},${H}" fill="url(#spark-fill)"/>
+      <polyline points="${line}" fill="none" style="stroke:var(--live)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${lx}" cy="${ly}" r="3" style="fill:var(--live)"/></svg></span>`;
+  }
+
+  // Tudo o que só o jogador resolve, com o botão que resolve. Some quando não tem nada.
+  function renderAttention(accounts) {
+    const items = accounts.filter((x) => x.status === 'problem').map(({ game, p, a }) => {
+      const where = `${game === 'lolidle' ? 'LoLdle' : 'Pokeidle'} · ${p === 'kick' ? 'Kick' : 'Twitch'}`;
+      const [text, action, icon, label] = game === 'lolidle' && p === 'kick'
+        ? ['a Kick recusou o token. Cole um token novo para ela voltar a juntar pontos.', 'go-lolkick-add', 'key', 'Trocar token']
+        : game === 'lolidle'
+        ? ['o login venceu. Confirme o código de novo para ela voltar aos chats.', 'go-lol-link', 'link', 'Vincular de novo']
+        : p === 'kick' ? ['a Kick recusou o token. Cole um token novo para ela voltar a juntar pontos.', 'go-kick-add', 'key', 'Trocar token']
+        : ['o login venceu. Confirme o código de novo para ela voltar a juntar pontos.', 'go-twitch-link', 'link', 'Vincular de novo'];
+      return `<div class="item">${platformMark(p)}<span><b>${esc(a.login)}</b> <span class="meta">(${where})</span>: ${text}</span>
+        <wa-button size="small" variant="brand" class="brand-${p}" data-action="${action}"><wa-icon slot="start" name="${icon}"></wa-icon>${label}</wa-button></div>`;
+    });
+    const freshErrors = visibleEvents('bad').filter((e) => e.at > seenAt('bad')).length;
+    if (freshErrors) {
+      items.push(`<div class="item"><wa-icon name="bug" style="color:var(--error-text)"></wa-icon><span>${plural(freshErrors, 'erro novo', 'erros novos')} da Twitch ou da Kick desde a última vez que você olhou.</span>
+        <wa-button size="small" appearance="outlined" data-action="events" data-kind="bad">Ver erros</wa-button></div>`);
+    }
+    if (!gameOn('pokeidle') && !gameOn('lolidle')) {
+      items.push(`<div class="item"><span>Todos os jogos estão desligados, então nenhuma conta está trabalhando.</span>
+        <wa-button size="small" variant="brand" href="#config"><wa-icon slot="start" name="gamepad"></wa-icon>Ligar um jogo</wa-button></div>`);
+    } else if (!accounts.length) {
+      items.push(`<div class="item"><span>Nenhuma conta vinculada ainda. Vincule uma para começar.</span>
+        ${gameOn('pokeidle') ? `<wa-button size="small" class="brand-twitch" variant="brand" data-action="go-twitch-link"><wa-icon slot="start" family="brands" name="twitch"></wa-icon>Pokeidle na Twitch</wa-button>
+        <wa-button size="small" class="brand-kick" variant="brand" data-action="go-kick-add"><svg slot="start" class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>Pokeidle na Kick</wa-button>` : ''}
+        ${gameOn('lolidle') ? `<wa-button size="small" class="brand-twitch" variant="brand" data-action="go-lol-link"><wa-icon slot="start" family="brands" name="twitch"></wa-icon>LoLdle na Twitch</wa-button>
+        <wa-button size="small" class="brand-kick" variant="brand" data-action="go-lolkick-add"><svg slot="start" class="brand-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>LoLdle na Kick</wa-button>` : ''}</div>`);
+    }
+    setHTML($('attention'), items.length ? `<wa-callout variant="warning" class="attention"><wa-icon slot="icon" name="hand"></wa-icon>
+      <div><b>Precisa de você</b>${items.join('')}</div></wa-callout>` : '');
+  }
+
+  // Votos do idlehub que já podem ser feitos, com atalho para votar sem abrir a página Votar.
+  function renderOverviewVotes() {
+    const items = [['pokeidle', 'Pokeidle', 'twitch'], ['lolidle', 'LoLdle', 'lolidle']].filter(([game]) => gameOn(game)).map(([game, name, page]) => {
+      const ready = votersOf(game).filter(voteReady);
+      if (!ready.length) return '';
+      const icon = document.querySelector(`#nav a[data-page="${page}"] svg`)?.outerHTML ?? '';
+      const button = ready.length === 1
+        ? `<wa-button size="small" variant="brand" data-action="vote-open" data-key="${esc(ready[0].id)}"><wa-icon slot="start" name="check-to-slot"></wa-icon>Votar</wa-button>`
+        : `<wa-button size="small" variant="brand" data-action="vote-all" data-vote-game="${game}"><wa-icon slot="start" name="check-double"></wa-icon>Abrir todos</wa-button>`;
+      return `<div class="item">${icon}<span>${plural(ready.length, 'voto pronto', 'votos prontos')} no ${name}
+        <span class="meta">(${ready.map((v) => esc(v.player)).join(', ')})</span></span>${button}</div>`;
+    }).join('');
+    setHTML($('ov-votes'), items ? `<wa-callout variant="brand" class="attention brand-orange"><wa-icon slot="icon" name="check-to-slot"></wa-icon>
+      <div><b>Votos no idlehub.io</b> <a href="#votos" data-page="votos" class="meta">ver todos</a>${items}</div></wa-callout>` : '');
+  }
+
+  // Situação de uma conta numa linha (o texto curto da Visão geral).
+  function accountStatus({ game, p, a, status }) {
+    if (status === 'problem') return `<wa-badge variant="danger" pill>${p === 'kick' ? 'Token recusado' : 'Vincule de novo'}</wa-badge>`;
+    if (status === 'resting') return `<span class="meta"><wa-icon name="moon"></wa-icon> descansando até ${esc(a.restUntil ?? '08:00')}</span>`;
+    if (status === 'connecting') return '<span class="meta">conectando…</span>';
+    if (status === 'waiting') return '<span class="meta">esperando live</span>';
+    return game === 'lolidle' && p === 'twitch'
+      ? `<span class="meta">em ${plural(a.joined.length, 'chat', 'chats')}</span>`
+      : `<span class="meta" title="${esc(a.watching.join(', '))}"><wa-icon name="eye"></wa-icon> ${plural(a.watching.length, 'live', 'lives')}</span>`;
+  }
+
+  // Lista das lives com rolagem e degradê só quando tem mais para rolar.
+  function liveList(el, rows, empty) {
+    setHTML(el, rows.length ? rows.join('') : `<div class="empty">${empty}</div>`);
+    el.classList.toggle('more', el.scrollHeight > el.clientHeight + 4);
+  }
+
+  function renderOverviewPokeidle(accounts, today, twitchLive, kickLive) {
+    const mine = accounts.filter((x) => x.game === 'pokeidle');
+    const el = $('ov-pokeidle');
+    if (!el.firstElementChild) el.innerHTML = '<div class="ov-acc"></div><div><div class="ov-label">Ao vivo agora</div><div class="ov-live scroll-list"></div></div>';
+    // No histórico, as contas da Kick ficam como "nome (Kick)" (recordPoints em kickpoints.js).
+    const earned = (x) => today.accounts[x.p === 'kick' ? `${x.a.login} (Kick)` : x.a.login];
+    setHTML(el.querySelector('.ov-acc'), mine.length
+      ? `<div class="ov-label">Contas · pontos hoje</div>${mine.map((x) => `<div class="row">${platformMark(x.p)}<span class="login">${esc(x.a.login)}</span>
+          ${accountStatus(x)}<span class="today" title="Pontos ganhos hoje" data-num="today:${x.p}:${esc(accountKey(x.p, x.a))}">${earned(x) ? `+${fmt(earned(x))}` : ''}</span></div>`).join('')}`
+      : '<div class="empty">Nenhuma conta juntando pontos. Vincule uma em Pokeidle → Twitch ou Kick.</div>');
+
+    // Quem está assistindo cada live, para ver que as contas estão onde deviam.
+    const watchers = (p, name) => mine.filter((x) => x.p === p && x.a.watching?.includes(name)).map((x) => x.a.login);
+    const live = [...twitchLive.map((c) => ({ ...c, p: 'twitch' })), ...kickLive.map((c) => ({ ...c, p: 'kick' }))].sort((a, b) => b.viewers - a.viewers);
+    liveList(el.querySelector('.ov-live'), live.map((c) => {
+      const who = watchers(c.p, c.name);
+      return `<div class="row">${platformMark(c.p)}<span class="name" title="${esc(c.name)}">${esc(c.name)}</span>
+        ${who.length ? `<span class="who" title="Assistindo: ${esc(who.join(', '))}"><wa-icon name="eye"></wa-icon> ${esc(who.join(', '))}</span>` : ''}
+        <wa-badge class="viewers" variant="danger" appearance="filled-outlined" pill><wa-icon name="user" slot="start"></wa-icon>${fmt(c.viewers)}</wa-badge></div>`;
+    }), 'Nenhum parceiro do Pokeidle ao vivo agora.');
+  }
+
+  function renderOverviewLolidle(accounts) {
+    const el = $('ov-lolidle');
+    const lol = state.lolidle;
+    if (!lol) return setHTML(el, '<div class="empty">Reinicie o servidor para usar o LoLdle.</div>');
+    if (!el.querySelector('.ov-acc')) {
+      el._html = null; // o aviso de "reinicie" foi trocado à mão
+      el.innerHTML = '<div class="ov-acc"></div><div><div class="ov-label">Ao vivo agora</div><div class="ov-live scroll-list"></div></div>';
+    }
+    const mine = accounts.filter((x) => x.game === 'lolidle');
+    const chat = mine.filter((x) => x.p === 'twitch');
+    setHTML(el.querySelector('.ov-acc'), mine.length
+      ? `<div class="ov-label">Contas</div>${mine.map((x) => `<div class="row">${platformMark(x.p)}<span class="login">${esc(x.a.login)}</span>${accountStatus(x)}</div>`).join('')}`
+      : '<div class="empty">Nenhuma conta ainda. Vincule uma em LoLdle → Twitch ou adicione uma em LoLdle → Kick.</div>');
+    const inChat = (name) => chat.filter((x) => x.a.joined?.includes(name)).length;
+    const watchers = (name) => mine.filter((x) => x.p === 'kick' && x.a.watching?.includes(name)).map((x) => x.a.login);
+    const live = [...lol.channels.map((c) => ({ ...c, p: 'twitch' })), ...(lol.kick?.channels ?? []).map((c) => ({ ...c, p: 'kick' }))]
+      .filter((c) => c.live).sort((a, b) => b.viewers - a.viewers || a.name.localeCompare(b.name));
+    liveList(el.querySelector('.ov-live'), live.map((c) => {
+      const who = c.p === 'kick' ? watchers(c.name) : [];
+      const extra = c.p === 'twitch'
+        ? (chat.length ? `<span class="who" title="Contas no chat desta live"><wa-icon name="comments"></wa-icon> ${inChat(c.name)}/${chat.length}</span>` : '')
+        : (who.length ? `<span class="who" title="Assistindo: ${esc(who.join(', '))}"><wa-icon name="eye"></wa-icon> ${esc(who.join(', '))}</span>` : '');
+      return `<div class="row">${platformMark(c.p)}<span class="name" title="${esc(c.name)}">${esc(c.name)}</span>${extra}
+        <wa-badge class="viewers" variant="danger" appearance="filled-outlined" pill><wa-icon name="user" slot="start"></wa-icon>${fmt(c.viewers)}</wa-badge></div>`;
+    }), 'Nenhum parceiro do LoLdle ao vivo agora.');
+  }
+
+  // Barras dos pontos dos últimos 7 dias (dias sem pontos entram com zero).
+  function renderOverviewWeek() {
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const key = dayKeyOf(i - 6);
+      return { key, total: dayPoints(key).total };
+    });
+    const max = Math.max(...days.map((d) => d.total));
+    if (!max) return setHTML($('ov-week'), '<div class="empty">As barras aparecem quando as contas (Twitch ou Kick) ganharem os primeiros pontos com o painel aberto.</div>');
+    const week = days.reduce((t, d) => t + d.total, 0);
+    const active = days.filter((d) => d.total).length;
+    const short = (n) => n >= 10000 ? `${fmt(Math.round(n / 1000))} mil` : fmt(n);
+    setHTML($('ov-week'), `<div class="week">${days.map((d, i) => {
+      const label = i === 6 ? 'Hoje' : new Date(`${d.key}T12:00:00`).toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+      return `<div class="day ${i === 6 ? 'today' : ''}" title="${esc(dayLabel(d.key))}: +${fmt(d.total)} pontos">
+        <span class="val">${d.total ? `+${short(d.total)}` : ''}</span>
+        <div class="track"><div class="bar" style="height:${Math.round((d.total / max) * 100)}%"></div></div>
+        <span class="lbl">${label}</span></div>`;
+    }).join('')}</div>
+    <div class="week-foot meta"><span>Semana: <b>+${fmt(week)}</b></span><span>Média por dia: <b>+${fmt(Math.round(week / active))}</b></span></div>`);
+  }
+
+  // Os acontecimentos bons mais recentes (o resto fica na gaveta do 🎁).
+  function renderOverviewEvents() {
+    const list = visibleEvents('good').slice(0, 6);
+    setHTML($('ov-events'), list.length ? list.map((e) => {
+      const date = new Date(e.at);
+      const day = date.toLocaleDateString('sv-SE');
+      const when = day === dayKeyOf() ? date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : dayLabel(day);
+      const text = e.text.charAt(0).toUpperCase() + e.text.slice(1);
+      return `<div class="event good"><span class="icon"><wa-icon name="${eventIcon(e)}"></wa-icon></span>
+        <span class="body">${e.account ? `<span class="who">${esc(e.account)}</span> · ` : ''}${esc(text)}</span>
+        <span class="when">${esc(when)}</span></div>`;
+    }).join('') : `<div class="empty">${EVENTS_INFO.good.empty}</div>`);
+  }
+
+  // Código para vincular a conta de pontos.
+  const linkCallout = (link, cancelAction) => link.error
+    ? `<wa-callout variant="danger"><wa-icon slot="icon" name="circle-exclamation"></wa-icon>
+         <div class="link-box"><div>Vínculo falhou: ${esc(link.error)}</div>
+         <wa-button size="small" appearance="outlined" data-action="${cancelAction}">Fechar</wa-button></div></wa-callout>`
+    : `<wa-callout variant="brand"><wa-icon slot="icon" name="link"></wa-icon>
+         <div class="link-box">
+           <div>Abra <a href="${esc(link.uri)}" target="_blank" rel="noopener">${esc(link.uri.split('?')[0])}</a> logado na conta que quer vincular e confirme o código:
+             <div class="meta">Dica: abra o link numa janela anônima para não confirmar na conta errada.</div></div>
+           <span class="code">${esc(link.userCode)}</span>
+           <wa-button size="small" appearance="outlined" data-action="${cancelAction}">Cancelar</wa-button>
+         </div></wa-callout>`;
+
+  let dialogAccount = null; // { platform, key }: conta aberta na janela "Ver todos"
+
+  // Identificador da conta nas ações: login na Twitch, id na Kick.
+  const accountKey = (platform, a) => (platform === 'twitch' ? a.login : String(a.id));
+
+  // Card de uma conta de pontos (Twitch ou Kick).
+  function pointsCard(platform, a) {
+    const key = esc(accountKey(platform, a));
+    const status = a.needsRelink ? `<wa-badge variant="danger" pill>${platform === 'twitch' ? 'Vincule de novo' : 'Token recusado'}</wa-badge>`
+      : a.resting ? `<wa-badge variant="neutral" pill title="Descanso diário, das 5h às 8h (Brasília)"><wa-icon slot="start" name="moon"></wa-icon>Descansando até ${esc(a.restUntil ?? '08:00')}</wa-badge>`
+      : a.watching.length ? '<wa-badge variant="success" pill>Assistindo</wa-badge>'
+      : '<wa-badge variant="neutral" pill>Esperando live</wa-badge>';
+    const relink = platform === 'twitch'
+      ? { action: 'points-link', icon: 'link', text: 'Vincular de novo' }
+      : { action: 'kick-add', icon: 'key', text: 'Trocar token' };
+    const relinkTarget = platform === 'twitch' ? '' : ` data-platform="${platform}"`;
+    return `
+      <wa-card class="points">
+        <div class="account"><div class="head">
+          <wa-avatar initials="${esc((a.login?.[0] || '?').toUpperCase())}"></wa-avatar>
+          <div class="who"><span class="login">${esc(a.login ?? '')}</span>${status}</div>
+          <wa-dropdown>
+            <wa-button slot="trigger" appearance="plain" size="small"><wa-icon name="ellipsis-vertical" label="Mais opções"></wa-icon></wa-button>
+            <wa-dropdown-item data-action="${relink.action}"${relinkTarget}><wa-icon slot="icon" name="${relink.icon}"></wa-icon>${relink.text}</wa-dropdown-item>
+            <wa-dropdown-item variant="danger" data-action="points-unlink" data-platform="${platform}" data-key="${key}" data-login="${esc(a.login)}"><wa-icon slot="icon" name="link-slash"></wa-icon>${platform === 'twitch' ? 'Desvincular conta' : 'Remover conta'}</wa-dropdown-item>
+          </wa-dropdown>
+        </div></div>
+        ${a.needsRelink ? `<div><wa-button variant="brand" size="small" data-action="${relink.action}"${relinkTarget}><wa-icon slot="start" name="${relink.icon}"></wa-icon>${relink.text}</wa-button></div>` : ''}
+        ${pointsRows(platform, a, POINTS_PREVIEW)}
+        ${a.channels.length > POINTS_PREVIEW ? `<div class="points-more"><wa-button size="small" appearance="outlined" variant="brand" data-action="points-expand" data-platform="${platform}" data-key="${key}">
+          <wa-icon slot="start" name="up-right-and-down-left-from-center"></wa-icon>Ver todos os ${a.channels.length} canais</wa-button></div>` : ''}
+      </wa-card>`;
+  }
+
+  // Abre ou atualiza a janela "Ver todos" da conta escolhida.
+  function renderPointsDialog() {
+    if (!dialogAccount) return;
+    const { platform, key } = dialogAccount;
+    const open = accountsOf(platform).find((a) => accountKey(platform, a) === key);
+    if (!open) {
+      $('points-dialog').open = false;
+      return;
+    }
+    $('points-dialog').label = `Pontos do canal · ${open.login}${platform === 'kick' ? ' (Kick)' : platform === 'lolkick' ? ' (LoLdle · Kick)' : ''}`;
+    $('points-dialog').className = `brand-${brandOf(platform)}`;
+    renderPointsTable(platform, open);
+  }
+
+  function renderPoints() {
+    const p = state.points;
+    if (!p?.accounts) {
+      setHTML($('points-link'), '');
+      return setHTML($('points'), '<div class="empty">Reinicie o servidor para usar os pontos do canal.</div>');
+    }
+    setHTML($('points-link'), p.pendingLink ? `<div style="margin-bottom:var(--wa-space-m)">${linkCallout(p.pendingLink, 'points-cancel')}</div>` : '');
+    const cards = p.accounts.map((a) => pointsCard('twitch', a));
+    for (let i = p.accounts.length; i < p.max; i++) {
+      cards.push(`<wa-card class="points add"><wa-button variant="brand" data-action="points-link" ${p.pendingLink && !p.pendingLink.error ? 'disabled' : ''}>
+        <wa-icon slot="start" name="plus"></wa-icon>Vincular conta</wa-button><span class="meta">Conta ${i + 1} de ${p.max}</span></wa-card>`);
+    }
+    setHTML($('points'), cards.join(''));
+    renderPointsDialog();
+  }
+
+  function renderKickPoints() {
+    const p = state.kick.points;
+    if (!p?.accounts) return setHTML($('kick-points'), '<div class="empty">Reinicie o servidor para usar os pontos da Kick.</div>');
+    const cards = p.accounts.map((a) => pointsCard('kick', a));
+    for (let i = p.accounts.length; i < p.max; i++) {
+      cards.push(`<wa-card class="points add"><wa-button variant="brand" data-action="kick-add">
+        <wa-icon slot="start" name="plus"></wa-icon>Adicionar conta</wa-button><span class="meta">Conta ${i + 1} de ${p.max}</span></wa-card>`);
+    }
+    setHTML($('kick-points'), cards.join(''));
+    renderPointsDialog();
+  }
+
+  // Tabela da janela "Ver todos": todos os canais, com mais detalhes.
+  function renderPointsTable(platform, p) {
+    const twitch = platform === 'twitch';
+    const viewers = new Map((twitch ? state.channels : kickChannelsOf(platform)).map((c) => [c.name, c.viewers]));
+    setHTML($('points-all'), `<table class="points-table">
+      <tr><th>Canal</th><th>Situação</th><th class="num">Espectadores</th><th class="num">Saldo</th><th class="num" title="Desde que o painel abriu">Ganho</th>${twitch ? '<th class="num" title="Desde que o painel abriu">Baús pegos</th><th class="num" title="Desde que o painel abriu">Momentos</th>' : ''}<th></th></tr>
+      ${sortPoints(p.channels).map((c) => `<tr class="${c.live ? '' : 'off'}">
+        <td class="name">${esc(c.name)}${streakMark(c)}</td>
+        <td>${c.watching ? `<wa-tag size="small" variant="${c.error ? 'warning' : 'brand'}" appearance="filled-outlined" title="${esc(c.error ? `Não está contando: ${c.error}` : 'Ganhando pontos por tempo assistido')}">
+              <wa-icon slot="start" name="${c.error ? 'triangle-exclamation' : 'eye'}"></wa-icon>assistindo</wa-tag>`
+            : c.live ? '<wa-badge variant="success" pill>ao vivo</wa-badge>' : '<wa-badge variant="neutral" appearance="outlined" pill>offline</wa-badge>'}</td>
+        <td class="num ${c.live ? '' : 'quiet'}">${c.live ? fmt(viewers.get(c.name) ?? 0) : '–'}</td>
+        <td class="num"><b>${c.balance === null ? '–' : fmt(c.balance)}</b></td>
+        <td class="num ${c.gained ? 'gained' : 'quiet'}">${c.gained ? `+${fmt(c.gained)}` : '–'}</td>
+        ${twitch ? `<td class="num ${c.claims ? '' : 'quiet'}">${c.claims || '–'}</td>
+        <td class="num ${c.moments ? '' : 'quiet'}">${c.moments || '–'}</td>` : ''}
+        <td style="white-space:nowrap">${shopButton(platform, p, c.name)}${playButton(platform, p, c)}</td>
+      </tr>`).join('')}
+    </table>`);
+  }
+
+  // Assistindo primeiro, depois ao vivo, depois offline; em cada grupo, mais pontos primeiro.
+  const sortPoints = (list) => [...list].sort((a, b) => b.watching - a.watching || b.live - a.live || (b.balance ?? -1) - (a.balance ?? -1) || a.name.localeCompare(b.name));
+  const POINTS_PREVIEW = 5; // canais no card; o resto fica na janela "Ver todos"
+
+  // ✓ ao lado do nome: a conta já garantiu a sequência (watch streak) da live atual.
+  const streakMark = (c) => c.streak ? '<span class="streak" title="Sequência garantida nesta live"><wa-icon name="check"></wa-icon></span>' : '';
+
+  // ▶: abre a live no navegador, no perfil da conta, para resgatar recompensas.
+  const playButton = (platform, account, c) => `<wa-button class="play" appearance="plain" size="small" data-action="points-open" data-platform="${platform}" data-key="${esc(accountKey(platform, account))}" data-channel="${esc(c.name)}"
+    title="Abrir ${esc(c.name)} com a conta ${esc(account.login)}"><wa-icon name="play" label="Abrir live"></wa-icon></wa-button>`;
+
+  // Loja: abre as recompensas do canal (Twitch ou Kick), já com esta conta escolhida.
+  const shopButton = (platform, account, channel) => `<wa-button class="play" appearance="plain" size="small" data-action="shop-open" data-platform="${platform}" data-key="${esc(accountKey(platform, account))}" data-channel="${esc(channel)}"
+    title="Loja de ${esc(channel)}: ver e resgatar recompensas"><wa-icon name="store" label="Loja"></wa-icon></wa-button>`;
+
+  // Bolinha do canal: verde ao vivo, apagada offline; pisca se a conta ainda não segue o canal.
+  // `followed === false` (e não `!followed`) para o painel novo não piscar tudo com o servidor antigo.
+  const UNFOLLOWED_TIP = 'Ainda não segue este canal (o follow automático vai chegar nele)';
+  const statusDot = (live, unfollowed) => `<span class="${live ? 'live-dot' : 'off-dot'} ${unfollowed ? 'unfollowed' : ''}"${unfollowed ? ` title="${UNFOLLOWED_TIP}"` : ''}></span>`;
+
+  function pointsRows(platform, account, limit = Infinity) {
+    const channels = sortPoints(account.channels).slice(0, limit);
+    return `<div>${channels.length ? channels.map((c) => `
+        <div class="row points-row ${c.live ? '' : 'off'}">${statusDot(c.live, c.followed === false)}<span class="name" title="${esc(c.name)}">${esc(c.name)}</span>${streakMark(c)}
+          ${c.watching ? `<span class="watch-icon ${c.error ? 'error' : ''}" title="${esc(c.error ? `Assistindo, mas não está contando: ${c.error}` : 'Assistindo: ganhando pontos por tempo assistido')}">
+            <wa-icon name="${c.error ? 'triangle-exclamation' : 'eye'}" label="assistindo"></wa-icon></span>` : ''}
+          <span class="amount">
+            <span class="balance" data-num="bal:${platform}:${esc(accountKey(platform, account))}:${esc(c.name)}" ${c.balance === null ? 'title="Lendo o saldo…"' : ''}>${c.balance === null ? '<span class="skel" style="width:44px;height:14px"></span>' : fmt(c.balance)}</span>
+            ${c.gained ? `<span class="gained" title="Ganho desde que o painel abriu" data-num="gain:${platform}:${esc(accountKey(platform, account))}:${esc(c.name)}">+${fmt(c.gained)}</span>` : ''}
+          </span>
+          ${shopButton(platform, account, c.name)}${playButton(platform, account, c)}
+        </div>`).join('') : '<div class="empty">Nenhum canal na lista.</div>'}</div>`;
+  }
+
+  // Cards da lista de canais parceiros: o mesmo desenho na Twitch e na Kick.
+  function channelCards(platform, list) {
+    const channels = sortChannels(list).filter((c) => filters[platform] === 'all' || (filters[platform] === 'live') === c.live);
+    // Canais que alguma conta (ativa) desta plataforma ainda não segue.
+    const accounts = platform === 'lolidle' ? [] : accountsOf(platform);
+    const unfollowed = new Set(accounts.filter((a) => !a.needsRelink).flatMap((a) => a.channels.filter((c) => c.followed === false).map((c) => c.name)));
+    return channels.map((c) => `
+      <wa-card class="channel ${c.live ? '' : 'offline'}">
+        <div class="top">${c.live ? statusDot(true, unfollowed.has(c.name)) : ''}<span class="name" title="${esc(c.name)}">${esc(c.name)}</span>${viewersBadge(c)}
+          <wa-button class="remove" appearance="plain" size="small" data-action="remove-${platform}" data-channel="${esc(c.name)}"><wa-icon name="xmark" label="Remover canal"></wa-icon></wa-button></div>
+      </wa-card>`).join('') || '<div class="empty">Nenhum canal aqui.</div>';
+  }
+
+  function renderTwitch() {
+    setHTML($('twitch-channels'), channelCards('twitch', state.channels));
+  }
+
+  function renderKick() {
+    setHTML($('kick-channels'), channelCards('kick', state.kick.channels));
+  }
+
+  // ---------- LoLdle (contas no chat) ----------
+
+  function renderLolidle() {
+    const lol = state.lolidle;
+    if (!lol) {
+      setHTML($('lol-accounts'), '<div class="empty">Reinicie o servidor para usar o LoLdle.</div>');
+      return setHTML($('lol-channels'), '');
+    }
+    const liveCount = lol.channels.filter((c) => c.live).length;
+    $$('[data-count="lolidle"]').forEach((b) => { b.textContent = `${liveCount} ao vivo`; b.hidden = !liveCount; });
+    if (!lol.kick) $$('[data-count="lolidle-all"]').forEach((b) => { b.textContent = `${liveCount} ao vivo`; b.hidden = !liveCount; });
+    setHTML($('lol-link'), lol.pendingLink ? `<div style="margin-bottom:var(--wa-space-m)">${linkCallout(lol.pendingLink, 'lol-cancel')}</div>` : '');
+
+    const cards = lol.accounts.map((a) => {
+      const badge = a.needsRelink ? '<wa-badge variant="danger" pill>Vincule de novo</wa-badge>'
+        : !a.connected ? '<wa-badge variant="warning" pill><span class="shimmer" data-text="Conectando…">Conectando…</span></wa-badge>'
+        : a.joined.length ? `<wa-badge variant="success" pill>Em ${a.joined.length} chat${a.joined.length === 1 ? '' : 's'}</wa-badge>`
+        : '<wa-badge variant="neutral" pill>Esperando live</wa-badge>';
+      return `<wa-card class="points">
+        <div class="lol-head"><span class="login">${esc(a.login)}</span>${badge}
+          ${a.needsRelink ? '<wa-button size="small" variant="brand" data-action="lol-link"><wa-icon slot="start" name="link"></wa-icon>Vincular de novo</wa-button>' : ''}
+          <wa-button appearance="plain" size="small" data-action="lol-unlink" data-key="${esc(a.login)}" title="Desvincular ${esc(a.login)}"><wa-icon name="trash" label="Desvincular"></wa-icon></wa-button></div>
+        <div class="lol-chats">${a.joined.length ? a.joined.map((name) => `<span><span class="live-dot"></span>${esc(name)}</span>`).join('')
+          : '<span class="meta">Nenhum chat agora.</span>'}</div>
+      </wa-card>`;
+    });
+    for (let i = lol.accounts.length; i < lol.max; i++) {
+      cards.push(`<wa-card class="points add"><wa-button variant="brand" data-action="lol-link" ${lol.pendingLink && !lol.pendingLink.error ? 'disabled' : ''}>
+        <wa-icon slot="start" name="plus"></wa-icon>Vincular conta</wa-button><span class="meta">Conta ${i + 1} de ${lol.max}</span></wa-card>`);
+    }
+    setHTML($('lol-accounts'), cards.join(''));
+    setHTML($('lol-channels'), lol.channels.length ? channelCards('lolidle', lol.channels)
+      : '<div class="empty">Nenhum canal ainda. Adicione os canais parceiros do LoLdle aqui em cima.</div>');
+  }
+
+  // ---------- LoLdle na Kick (pontos do canal, igual ao Pokeidle na Kick) ----------
+
+  function renderLolidleKick() {
+    const k = state.lolidle?.kick;
+    if (!k?.points?.accounts) {
+      setHTML($('lolkick-points'), '<div class="empty">Reinicie o servidor para usar o LoLdle na Kick.</div>');
+      return setHTML($('lolkick-channels'), '');
+    }
+    const kickLive = k.channels.filter((c) => c.live).length;
+    const allLive = kickLive + (state.lolidle.channels ?? []).filter((c) => c.live).length;
+    $$('[data-count="lolidle-kick"]').forEach((b) => { b.textContent = `${kickLive} ao vivo`; b.hidden = !kickLive; });
+    $$('[data-count="lolidle-all"]').forEach((b) => { b.textContent = `${allLive} ao vivo`; b.hidden = !allLive; });
+    const p = k.points;
+    const cards = p.accounts.map((a) => pointsCard('lolkick', a));
+    for (let i = p.accounts.length; i < p.max; i++) {
+      cards.push(`<wa-card class="points add"><wa-button variant="brand" data-action="kick-add" data-platform="lolkick">
+        <wa-icon slot="start" name="plus"></wa-icon>Adicionar conta</wa-button><span class="meta">Conta ${i + 1} de ${p.max}</span></wa-card>`);
+    }
+    setHTML($('lolkick-points'), cards.join(''));
+    setHTML($('lolkick-channels'), k.channels.length ? channelCards('lolkick', k.channels)
+      : '<div class="empty">Nenhum canal ainda. Adicione os canais parceiros do LoLdle na Kick aqui em cima.</div>');
+    renderPointsDialog();
+  }
+
+  // ---------- Loja (recompensas de um canal da Twitch ou da Kick) ----------
+
+  // Loja aberta: { platform, channel, key (conta escolhida: login na Twitch, id na Kick), data, error, texts, qty (quantidade por recompensa), busy, message }.
+  // As recompensas são lidas ao abrir (e depois de cada resgate); os saldos vêm do state, que atualiza a cada 5 s.
+  let shop = null;
+  const timeOf = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const balanceIn = (account, channel) => account?.channels.find((c) => c.name === channel)?.balance ?? null;
+  const onCooldown = (r) => !!r.cooldownUntil && Date.parse(r.cooldownUntil) > Date.now();
+
+  // Filtros pelos bônus do Pokeidle, pelo título da recompensa. O escolhido vale para todas as lojas até trocar.
+  const SHOP_FILTERS = [
+    { id: 'xp', label: 'XP', icon: 'arrow-trend-up', match: /\bxp\b/i },
+    { id: 'capture', label: 'Capture Boost', icon: 'bullseye', match: /captur/i },
+    { id: 'lure', label: 'Shiny Lure', icon: 'star', match: /lure|shiny/i },
+  ];
+  let shopFilter = null;
+  // A loja mostra só o que é do Pokeidle: "Pokeidle" no título ou na descrição, ou um dos bônus dos filtros.
+  // O resto do canal (sons, VIP, pedidos ao streamer) fica de fora.
+  // As de outros jogos que também dão XP (LoL Idle, Bloodbound) ficam de fora, a não ser que citem o Pokeidle.
+  const OTHER_GAMES = /lol\s*idle|loldle|blood\s*bound/i;
+  const isPokeIdle = (r) => {
+    const text = `${r.title} ${r.prompt}`;
+    if (/poke\s*idle/i.test(text)) return true;
+    return !OTHER_GAMES.test(text) && SHOP_FILTERS.some((f) => f.match.test(r.title));
+  };
+  // Na loja do LoLdle, só as recompensas que citam o LoLdle (ou o LoL Idle) no título ou na descrição.
+  const isLolIdle = (r) => /lol\s*idle|loldle/i.test(`${r.title} ${r.prompt}`);
+  const gameOfShop = (platform) => (platform === 'lolkick' ? 'LoLdle' : 'Pokeidle');
+
+  const shopAccounts = (platform) => accountsOf(platform);
+
+  function openShop(platform, channel, key) {
+    shop = { platform, channel, key, data: null, error: null, texts: {}, qty: {}, busy: null, message: null };
+    $('rewards-dialog').label = `Loja de ${channel}${isKick(platform) ? ' (Kick)' : ''}`;
+    $('rewards-dialog').className = `brand-${brandOf(platform)}`;
+    renderShop();
+    $('rewards-dialog').open = true;
+    loadShop();
+  }
+
+  // quiet: atualiza sem trocar a lista por "Abrindo a loja…" (depois de um resgate).
+  async function loadShop(quiet = false) {
+    const current = shop;
+    if (!current) return;
+    if (!quiet) Object.assign(current, { data: null, error: null });
+    renderShop();
+    try {
+      const res = await fetch(`/api/${isKick(current.platform) ? `${current.platform}/` : ''}rewards/${encodeURIComponent(current.channel)}`);
+      const data = await res.json().catch(() => ({ error: 'reinicie o servidor para usar a loja' }));
+      if (!res.ok) throw new Error(res.status === 404 ? 'reinicie o servidor para usar a loja' : data.error || 'algo deu errado');
+      current.data = data;
+      current.error = null;
+    } catch (err) {
+      if (!current.data) current.error = err instanceof TypeError ? 'o servidor não respondeu' : err.message;
+    }
+    if (shop === current) renderShop();
+  }
+
+  // O mesmo motivo que o servidor daria (redeemProblem em points.js), para avisar antes do clique.
+  function rewardProblem(r, balance) {
+    if (r.paused) return 'pausada';
+    if (!r.inStock) return 'esgotada';
+    if (onCooldown(r)) return `volta às ${timeOf(r.cooldownUntil)}`;
+    if (balance === null) return 'saldo ainda não lido';
+    if (balance < r.cost) return `faltam ${fmt(r.cost - balance)}`;
+    return null;
+  }
+
+  // Quantas vezes o saldo paga a recompensa (até 24, para um clique não esvaziar a conta sem querer).
+  const MAX_QTY = 24;
+  const maxQty = (r, balance) => (balance === null || !r.cost ? 1 : Math.max(1, Math.min(MAX_QTY, Math.floor(balance / r.cost))));
+
+  function renderShop() {
+    if (!shop || !state) return;
+    const el = $('rewards');
+    if (!shop.data) {
+      return setHTML(el, shop.error
+        ? `<wa-callout variant="danger"><wa-icon slot="icon" name="circle-exclamation"></wa-icon>
+             <div class="link-box"><div>Não deu para abrir a loja: ${esc(shop.error)}</div>
+             <wa-button size="small" appearance="outlined" data-action="shop-reload">Tentar de novo</wa-button></div></wa-callout>`
+        : '<div class="empty"><wa-spinner></wa-spinner> <span class="shimmer" data-text="Abrindo a loja…">Abrindo a loja…</span></div>');
+    }
+    const { platform } = shop;
+    const kick = isKick(platform);
+    const accounts = shopAccounts(platform);
+    const account = accounts.find((a) => accountKey(platform, a) === shop.key) ?? accounts.find((a) => !a.needsRelink) ?? accounts[0];
+    shop.key = account ? accountKey(platform, account) : null;
+    const balance = balanceIn(account, shop.channel);
+    const { pointsName, pointsIcon } = shop.data;
+    const rewards = shop.data.rewards.filter(platform === 'lolkick' ? isLolIdle : isPokeIdle);
+    const icon = pointsIcon ? `<img src="${esc(pointsIcon)}" alt="">` : '<wa-icon name="coins"></wa-icon>';
+
+    const picker = accounts.length
+      ? `<div class="shop-accounts" style="--cols:${Math.min(accounts.length, 4)}">${accounts.map((a) => {
+          const b = balanceIn(a, shop.channel);
+          return `<wa-button size="small" variant="brand" appearance="${accountKey(platform, a) === shop.key ? 'accent' : 'outlined'}" data-action="shop-account" data-key="${esc(accountKey(platform, a))}"
+            title="${esc(a.login)}"><span class="who">${esc(a.login)}</span><span class="bal">· ${b === null ? '–' : fmt(b)}</span></wa-button>`;
+        }).join('')}<span class="meta">Conta que vai resgatar, com o saldo de ${esc(pointsName)} neste canal.</span></div>`
+      : `<wa-callout variant="neutral" size="small"><wa-icon slot="icon" name="circle-info"></wa-icon>${kick ? 'Adicione' : 'Vincule'} uma conta em ${whereOf(platform)} para resgatar por aqui.</wa-callout>`;
+    const relink = account?.needsRelink
+      ? `<wa-callout variant="danger" size="small"><wa-icon slot="icon" name="circle-exclamation"></wa-icon>${kick ? 'Cole um token novo para esta conta' : 'Esta conta precisa ser vinculada de novo'} antes de resgatar.</wa-callout>` : '';
+    const message = shop.message ? `<wa-callout variant="${shop.message.variant}" size="small" style="margin:var(--wa-space-xs) 0">
+        <wa-icon slot="icon" name="${{ success: 'circle-check', neutral: 'hourglass-half' }[shop.message.variant] ?? 'circle-exclamation'}"></wa-icon>${esc(shop.message.text)}</wa-callout>` : '';
+
+    // Só mostra os filtros que têm alguma recompensa neste canal.
+    const filters = SHOP_FILTERS.filter((f) => rewards.some((r) => f.match.test(r.title)));
+    const active = filters.find((f) => f.id === shopFilter);
+    const filterBar = filters.length ? `<div class="shop-filters">${filters.map((f) =>
+      `<wa-button size="small" pill variant="brand" appearance="${f === active ? 'accent' : 'outlined'}" data-action="shop-filter" data-key="${f.id}"
+        title="${f === active ? 'Mostrar todas' : `Só ${esc(f.label)}`}"><wa-icon slot="start" name="${f.icon}"></wa-icon>${esc(f.label)}</wa-button>`).join('')}</div>` : '';
+    const shown = active ? rewards.filter((r) => active.match.test(r.title)) : rewards;
+
+    const list = shown.length ? shown.map((r) => {
+      const problem = rewardProblem(r, balance);
+      const tags = [
+        r.paused && '<wa-tag size="small" variant="warning">pausada</wa-tag>',
+        !r.inStock && '<wa-tag size="small" variant="warning">esgotada</wa-tag>',
+        onCooldown(r) && `<wa-tag size="small" variant="warning">em espera até ${esc(timeOf(r.cooldownUntil))}</wa-tag>`,
+        r.subOnly && '<wa-tag size="small" variant="neutral">só inscritos</wa-tag>',
+        r.inputRequired && '<wa-tag size="small" variant="neutral">pede texto</wa-tag>',
+      ].filter(Boolean).join('');
+      const canBuy = !!account && !account.needsRelink && !problem;
+      // Quantidade: aparece em todas, para as linhas ficarem iguais. Desativada quando não dá para resgatar.
+      const most = maxQty(r, balance);
+      const qty = Math.min(shop.qty[r.id] ?? 1, most);
+      const qtyInput = account && shop.done !== r.id
+        ? `<wa-input class="qty" type="number" size="small" min="1" max="${most}" value="${canBuy ? qty : 1}" data-shop-qty="${esc(r.id)}"
+            title="${canBuy ? (most > 1 ? `Quantas vezes resgatar (até ${most} com este saldo)` : 'O saldo desta conta paga só uma') : 'Não dá para resgatar agora'}" ${canBuy && most > 1 && !shop.busy ? '' : 'disabled'}></wa-input>` : '';
+      return `<div class="reward ${r.paused || !r.inStock || onCooldown(r) ? 'unavailable' : ''}">
+        <div class="pic" ${r.color ? `style="background:${esc(r.color)}"` : ''}>${r.image ? `<img src="${esc(r.image)}" alt="">` : '<wa-icon name="gift"></wa-icon>'}</div>
+        <div class="info">
+          <span class="title">${esc(r.title)}</span>
+          ${r.prompt ? `<span class="desc">${esc(r.prompt)}</span>` : ''}
+          ${tags ? `<span class="tags">${tags}</span>` : ''}
+          ${r.inputRequired && canBuy ? `<wa-input size="small" maxlength="200" placeholder="${esc(r.inputPrompt || 'Texto que o streamer pede')}" data-shop-text="${esc(r.id)}" value="${esc(shop.texts[r.id] ?? '')}"></wa-input>` : ''}
+        </div>
+        <div class="buy">
+          <span class="cost">${icon}${fmt(r.cost)}</span>
+          ${shop.done === r.id
+            ? '<wa-button size="small" variant="success" class="redeem-done"><svg slot="start" class="check-draw" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Resgatado</wa-button>'
+            : `<span class="buy-row">${qtyInput}<wa-button size="small" variant="brand" data-action="shop-redeem" data-reward="${esc(r.id)}" ${canBuy && !shop.busy ? '' : 'disabled'} ${shop.busy === r.id ? 'loading' : ''}>Resgatar</wa-button></span>`}
+          ${problem && account ? `<span class="why">${esc(problem)}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('') : `<div class="empty">${active ? `Nenhuma recompensa de ${esc(active.label)} ativa agora.` : `Este canal não tem recompensas do ${gameOfShop(platform)} ativas agora.`}</div>`;
+
+    setHTML(el, `${picker}${relink}${message}${filterBar}<div>${list}</div>`);
+  }
+
+  async function redeemReward(rewardId) {
+    const reward = shop?.data?.rewards.find((r) => r.id === rewardId);
+    if (!reward || shop.busy || !shop.key) return;
+    const text = (shop.texts[rewardId] ?? '').trim();
+    if (reward.inputRequired && !text) {
+      shop.message = { variant: 'danger', text: `"${reward.title}" pede um texto. Escreva no campo antes de resgatar.` };
+      return renderShop();
+    }
+    const { platform, channel, key } = shop;
+    const account = shopAccounts(platform).find((a) => accountKey(platform, a) === key);
+    const login = account?.login ?? key;
+    const total = Math.min(shop.qty[rewardId] ?? 1, maxQty(reward, balanceIn(account, channel)));
+    if (!(await ask({
+      title: total > 1 ? `Resgatar ${total} vezes?` : 'Resgatar recompensa?',
+      summary: [total > 1 ? `${total}× ${reward.title}` : reward.title, `${fmt(reward.cost * total)} pontos`],
+      text: `Com a conta ${login}${isKick(platform) ? ' da Kick' : ''}. Não dá para desfazer: os pontos só voltam se o streamer devolver.`
+        + (total > 1 ? '\n\nOs resgates saem um de cada vez, com uma pequena pausa entre eles. Se um falhar (saldo, estoque, tempo de espera), os outros não saem. Fechar a loja para os que faltam.' : ''),
+      ok: 'Resgatar', danger: true, brand: brandOf(platform),
+    }))) return;
+    const current = shop;
+    Object.assign(current, { busy: rewardId, message: null });
+    let done = 0;
+    let error = null;
+    try {
+      for (; done < total; done++) {
+        if (total > 1) current.message = { variant: 'neutral', text: `Resgatando ${done + 1} de ${total}…` };
+        renderShop();
+        // Pausa curta entre um resgate e outro, como uma pessoa clicando de novo.
+        if (done) await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
+        if (shop !== current) break; // loja fechada: para os que faltam
+        const res = await fetch(`/api/${accountPath(platform, key)}/redeem`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel, rewardId, text }),
+        });
+        const data = await res.json().catch(() => ({ error: 'O servidor respondeu algo inesperado. Reinicie o servidor e tente de novo.' }));
+        if (!res.ok) {
+          error = res.status === 404 ? 'Reinicie o servidor para resgatar por aqui.' : data.error || 'Algo deu errado';
+          break;
+        }
+        state = data;
+      }
+    } catch {
+      error = 'O servidor não respondeu. Veja na lista do presente 🎁 se o resgate entrou antes de tentar de novo.';
+    }
+    // Loja fechada no meio: o aviso vai para um toast, já que a janela sumiu.
+    if (shop !== current && total > 1 && done < total) toast(`Saíram ${done} de ${total} resgates de "${reward.title}".${error ? ` ${error}` : ''}`, 'info');
+    if (done === total) {
+      current.message = { variant: 'success', text: total > 1
+        ? `Resgatado ${total} vezes com ${login}: "${reward.title}" por ${fmt(reward.cost * total)} pontos.`
+        : `Resgatado com ${login}: "${reward.title}" por ${fmt(reward.cost)} pontos.` };
+      delete current.texts[rewardId];
+      delete current.qty[rewardId];
+      // O botão mostra "✓ Resgatado" por alguns segundos e volta ao normal.
+      current.done = rewardId;
+      setTimeout(() => {
+        if (current.done !== rewardId) return;
+        current.done = null;
+        if (shop === current) renderShop();
+      }, 2500);
+    } else if (error) {
+      current.message = { variant: 'danger', text: done ? `Saíram ${done} de ${total} resgates; o seguinte falhou: ${error}` : error };
+    }
+    current.busy = null;
+    if (shop !== current) return;
+    render();
+    // No quadro seguinte: o aviso "Resgatado com…" só ganha altura depois que o Web Awesome desenha ele.
+    if (current.done === rewardId) requestAnimationFrame(() => confetti(document.querySelector('#rewards-dialog .redeem-done'), $('rewards-dialog')));
+    loadShop(true); // estoque e tempo de espera podem ter mudado
+  }
+
+  // Confete saindo do botão quando o resgate dá certo. Só na ação do jogador, nunca no farm.
+  function confetti(from, host = document.body) {
+    if (!from || calmMotion.matches) return;
+    const r = from.getBoundingClientRect();
+    // Dentro da janela da loja, "fixed" conta a partir da janela (ela usa transform): mede onde fica o 0,0 dela.
+    const probe = document.createElement('span');
+    probe.className = 'confetti';
+    Object.assign(probe.style, { left: '0px', top: '0px', visibility: 'hidden' });
+    host.append(probe);
+    const origin = probe.getBoundingClientRect();
+    probe.remove();
+    const scale = origin.width / 7 || 1; // .confetti tem 7px de largura
+    const colors = ['#9146ff', '#53fc18', '#fc5e03', '#3ecf6e', '#ffd166', '#ffffff'];
+    for (let i = 0; i < 28; i++) {
+      const bit = document.createElement('span');
+      bit.className = 'confetti';
+      bit.style.left = `${(r.left + r.width / 2 - origin.left) / scale}px`;
+      bit.style.top = `${(r.top + r.height / 2 - origin.top) / scale}px`;
+      bit.style.background = colors[i % colors.length];
+      host.append(bit);
+      // Sobe num leque, perde força e cai girando.
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.9;
+      const speed = 80 + Math.random() * 110;
+      const [dx, dy] = [Math.cos(angle) * speed, Math.sin(angle) * speed];
+      const spin = (Math.random() - 0.5) * 900;
+      bit.animate([
+        { transform: 'translate(-50%, -50%) rotate(0deg)', opacity: 1 },
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) rotate(${spin / 2}deg)`, opacity: 1, offset: 0.4 },
+        { transform: `translate(calc(-50% + ${dx * 1.3}px), calc(-50% + ${dy * 0.3 + 160}px)) rotate(${spin}deg)`, opacity: 0 },
+      ], { duration: 1100 + Math.random() * 500, easing: 'cubic-bezier(0.2, 0.6, 0.4, 1)' }).finished.finally(() => bit.remove());
+    }
+  }
+
+  // Canal removido: o card se desfaz em fumaça antes de sair da lista. Se o servidor recusar, ele volta.
+  async function removeChannel(button, path) {
+    const card = button.closest('wa-card');
+    // isConnected: o card pode ter sido redesenhado enquanto o diálogo de confirmação estava aberto.
+    if (!card?.isConnected || calmMotion.matches) return api('DELETE', path);
+    const r = card.getBoundingClientRect();
+    for (let i = 0; i < 10; i++) {
+      const puff = document.createElement('span');
+      const size = 18 + Math.random() * 26;
+      puff.className = 'smoke';
+      Object.assign(puff.style, { width: `${size}px`, height: `${size}px`,
+        left: `${r.left + Math.random() * r.width - size / 2}px`, top: `${r.top + Math.random() * r.height - size / 2}px` });
+      document.body.append(puff);
+      puff.animate([
+        { opacity: 0, transform: 'scale(.6)' },
+        { opacity: .55, transform: 'scale(1)', offset: 0.3 },
+        { opacity: 0, transform: `translate(${(Math.random() - 0.5) * 30}px, ${-30 - Math.random() * 30}px) scale(1.6)` },
+      ], { duration: 700 + Math.random() * 300, easing: 'ease-out' }).finished.finally(() => puff.remove());
+    }
+    const fade = card.animate([
+      { opacity: 1, filter: 'blur(0)', transform: 'none' },
+      { opacity: 0, filter: 'blur(6px)', transform: 'translateY(-6px) scale(.97)' },
+    ], { duration: 420, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' });
+    // Espera a animação, mas nunca mais que 600 ms (com a aba em segundo plano ela não anda).
+    await Promise.race([fade.finished.catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
+    if (!(await api('DELETE', path))) fade.cancel();
+  }
+
+  $('rewards-dialog').addEventListener('wa-after-hide', (e) => {
+    if (e.target === $('rewards-dialog')) shop = null;
+  });
+  // Texto das recompensas que pedem um: guardado fora do HTML, para não sumir quando a janela atualiza.
+  document.addEventListener('input', (e) => {
+    const id = e.target.dataset?.shopText;
+    if (id && shop) shop.texts[id] = e.target.value;
+    const qtyId = e.target.dataset?.shopQty;
+    if (qtyId && shop) shop.qty[qtyId] = Math.max(1, Math.floor(Number(e.target.value)) || 1);
+  });
+
+  // ---------- Acontecimentos (erros e coisas boas) ----------
+
+  let eventsKind = null; // lista aberta na gaveta: 'good' | 'bad'
+  let eventsSeenBefore = 0; // o que era novo quando a lista abriu (fica destacado)
+  const EVENTS_INFO = {
+    bad: { title: 'Erros da Twitch e da Kick', intro: 'Erros que as plataformas devolveram nos últimos 30 dias. O mesmo erro da mesma conta só aparece de novo depois de 10 minutos.', empty: 'Nenhum erro nos últimos 30 dias.' },
+    good: { title: 'Baús, Momentos, raids, follows e resgates', intro: 'O que as contas pegaram, os canais que elas seguiram e as recompensas resgatadas nos últimos 30 dias.', empty: 'Nenhum baú, Momento, raid, follow ou resgate ainda.' },
+  };
+
+  // Quando cada lista foi vista pela última vez (guardado no navegador, para o contador de novos).
+  const seenAt = (kind) => {
+    try {
+      return Number(localStorage.getItem(`eventsSeen.${kind}`)) || 0;
+    } catch {
+      return 0;
+    }
+  };
+  const markSeen = (kind) => {
+    try {
+      localStorage.setItem(`eventsSeen.${kind}`, String(Date.now()));
+    } catch {}
+  };
+
+  const eventIcon = (e) => e.kind === 'bad' ? 'triangle-exclamation'
+    : /^baú/i.test(e.text) ? 'gift' : /^momento/i.test(e.text) ? 'star' : /raid/i.test(e.text) ? 'people-group' : /^seguiu/i.test(e.text) ? 'heart' : 'circle-check';
+
+  function renderEvents() {
+    const events = { good: visibleEvents('good'), bad: visibleEvents('bad') };
+    for (const kind of ['good', 'bad']) {
+      const fresh = events[kind].filter((e) => e.at > seenAt(kind)).length;
+      $$(`[data-events-count="${kind}"]`).forEach((b) => {
+        const hidden = !fresh || eventsKind === kind;
+        if (!hidden && b._fresh !== undefined && fresh > b._fresh) {
+          b.classList.toggle('pop', false);
+          void b.offsetWidth; // recomeça a animação
+          b.classList.add('pop');
+        }
+        b._fresh = hidden ? 0 : fresh;
+        b.hidden = hidden;
+        b.textContent = fresh > 99 ? '99+' : fresh;
+      });
+    }
+    if (!eventsKind) return;
+    const info = EVENTS_INFO[eventsKind];
+    const list = events[eventsKind] ?? [];
+    $('events-intro').textContent = info.intro;
+    let lastDay = '';
+    setHTML($('events-list'), list.length ? list.map((e) => {
+      const date = new Date(e.at);
+      const day = date.toLocaleDateString('sv-SE');
+      const header = day !== lastDay ? `<div class="event-day">${dayLabel(day)}</div>` : '';
+      lastDay = day;
+      const text = e.text.charAt(0).toUpperCase() + e.text.slice(1);
+      return `${header}<div class="event ${e.kind} ${e.at > eventsSeenBefore ? 'new' : ''}">
+        <span class="icon"><wa-icon name="${eventIcon(e)}"></wa-icon></span>
+        <span class="body">${e.platform ? `<span class="platform ${esc(e.platform)}" style="display:inline-grid;width:16px;height:16px;font-size:10px;vertical-align:-2px">${platformLogo(e.platform)}</span> ` : ''}${e.account ? `<span class="who">${esc(e.account)}</span> · ` : ''}${esc(text)}</span>
+        <span class="when">${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+      </div>`;
+    }).join('') : `<div class="empty">${info.empty}</div>`);
+  }
+
+  function openEvents(kind) {
+    eventsKind = kind;
+    eventsSeenBefore = seenAt(kind);
+    markSeen(kind);
+    $('events-drawer').label = EVENTS_INFO[kind].title;
+    $('events-drawer').className = kind === 'good' ? 'brand-twitch' : '';
+    $('events-list')._html = null; // força redesenhar com os destaques de "novo"
+    renderEvents();
+    $('events-drawer').open = true;
+  }
+
+  // Fechou a gaveta: tudo o que estava nela conta como visto.
+  $('events-drawer').addEventListener('wa-after-hide', () => {
+    if (eventsKind) markSeen(eventsKind);
+    eventsKind = null;
+    if (state) renderEvents();
+  });
+
+  function renderAlerts() {
+    setHTML($('alerts'), updateCallout() + (state.alerts ?? []).map((a) => `<wa-callout variant="${esc(a.variant)}" size="small">
+      <wa-icon slot="icon" name="${a.variant === 'danger' ? 'circle-exclamation' : 'triangle-exclamation'}"></wa-icon>${esc(a.text)}</wa-callout>`).join(''));
+  }
+
+  // Aviso de versão nova no topo. O servidor antigo não manda "update", então sem ele não mostra nada.
+  function updateCallout() {
+    const u = state.update;
+    if (u?.installed) {
+      return `<wa-callout variant="success" size="small"><wa-icon slot="icon" name="circle-check"></wa-icon>
+        Versão ${esc(u.installed)} instalada. Feche a janela preta e abra o <b>iniciar.bat</b> de novo para usar a versão nova.</wa-callout>`;
+    }
+    if (!u?.available) return '';
+    const notes = `<wa-button size="small" appearance="outlined" href="${esc(u.url)}" target="_blank">Ver novidades</wa-button>`;
+    return `<wa-callout variant="brand" size="small"><wa-icon slot="icon" name="circle-up"></wa-icon>
+      <div class="link-box">
+        <div>Saiu a versão <b>${esc(u.latest)}</b> do IdleLive (a sua é a ${esc(u.current)}).
+          ${u.canInstall ? '' : '<div class="meta">Esta pasta usa git: atualize com <code>git pull</code> ou baixe o <b>IdleLive.zip</b> da release.</div>'}</div>
+        ${notes}
+        ${u.canInstall ? `<wa-button size="small" variant="brand" data-action="update-install" ${u.installing ? 'loading' : ''}><wa-icon slot="start" name="download"></wa-icon>Atualizar agora</wa-button>` : ''}
+      </div></wa-callout>`;
+  }
+
+  // Motivos dos pontos (reason_code da Twitch; FOLLOW é o bônus de follow da Kick). Os que não estão aqui aparecem com o código.
+  const REASONS = {
+    WATCH: 'Tempo assistido',
+    CLAIM: 'Baús',
+    WATCH_STREAK: 'Sequências',
+    RAID: 'Raids',
+    COMMUNITY_MOMENT: 'Momentos',
+    FOLLOW: 'Follow',
+    OTHER: 'Sem detalhe',
+  };
+  const reasonName = (code) => REASONS[code] ?? code.toLowerCase().replaceAll('_', ' ');
+  const sumPoints = (reasons = {}) => Object.values(reasons).reduce((t, r) => t + r.points, 0);
+  const reasonsText = (reasons = {}) => Object.entries(reasons).sort((a, b) => b[1].points - a[1].points)
+    .map(([code, r]) => `${reasonName(code)} +${fmt(r.points)}${code === 'WATCH' || code === 'OTHER' ? '' : ` (${r.count}×)`}`).join(' · ');
+
+  function dayLabel(day) {
+    const date = new Date(`${day}T12:00:00`);
+    const diff = Math.round((new Date().setHours(12, 0, 0, 0) - date) / 86400000);
+    if (diff === 0) return 'Hoje';
+    if (diff === 1) return 'Ontem';
+    return date.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  }
+
+  // ---------- Votar (idlehub) ----------
+
+  // Servidor antigo não manda "votes": lista vazia.
+  const votersOf = (game) => (state.votes?.voters ?? []).filter((v) => v.game === game);
+  const voteReady = (v) => !v.readyAt || v.readyAt <= Date.now();
+  // "5 h 12 min", "40 min" ou "menos de 1 min".
+  function duration(ms) {
+    const min = Math.ceil(ms / 60000);
+    if (min <= 1) return 'menos de 1 min';
+    const h = Math.floor(min / 60);
+    return h ? `${h} h${min % 60 ? ` ${min % 60} min` : ''}` : `${min} min`;
+  }
+  const profileOptions = (profiles) => `<wa-option value="none">Qualquer perfil (o último que usei)</wa-option>
+    ${profiles.map((p) => `<wa-option value="${esc(p.dir)}">${esc(p.name)}</wa-option>`).join('')}`;
+
+  function renderVotes() {
+    const k = state.kick;
+    const profiles = k.availableProfiles ?? [];
+    setHTML($('votes-warning'), k.browserFound === false
+      ? '<wa-callout variant="warning" size="small"><wa-icon slot="icon" name="triangle-exclamation"></wa-icon>Nenhum navegador encontrado (Chrome, Brave ou Edge). Sem ele, os botões não abrem a página de voto.</wa-callout>' : '');
+    let readyTotal = 0;
+    for (const game of ['pokeidle', 'lolidle']) {
+      const list = votersOf(game);
+      const ready = list.filter(voteReady).length;
+      if (gameOn(game)) readyTotal += ready;
+      $$(`[data-votes-ready="${game}"]`).forEach((b) => { b.textContent = `${ready} pronto${ready === 1 ? '' : 's'}`; b.hidden = !ready; });
+      $$(`[data-action="vote-all"][data-vote-game="${game}"]`).forEach((b) => (b.disabled = ready < 2));
+      setHTML($(`votes-${game}`), list.length ? list.map((v) => `<div class="vote-row">
+          <div class="vote-who"><b>${esc(v.player)}</b>
+            ${voteReady(v) ? `<span class="meta vote-ready"><wa-icon name="circle-check"></wa-icon> Pode votar</span>`
+              : `<span class="meta">Libera em ${duration(v.readyAt - Date.now())}</span>`}</div>
+          <wa-select size="small" data-vote-profile="${esc(v.id)}" title="Perfil do navegador logado no idlehub">${profileOptions(profiles)}</wa-select>
+          <wa-button size="small" variant="brand" appearance="${voteReady(v) ? 'accent' : 'outlined'}" data-action="vote-open" data-key="${esc(v.id)}"><wa-icon slot="start" name="check-to-slot"></wa-icon>Votar</wa-button>
+          <wa-button size="small" appearance="plain" data-action="vote-remove" data-key="${esc(v.id)}" title="Tirar da lista"><wa-icon name="xmark" label="Tirar da lista"></wa-icon></wa-button>
+        </div>`).join('')
+        : '<div class="empty">Adicione o nick que vai receber o voto e o perfil do navegador que vota por ele.</div>');
+      for (const v of list) {
+        const select = document.querySelector(`[data-vote-profile="${CSS.escape(v.id)}"]`);
+        if (select && select.value !== (v.profile ?? 'none')) select.value = v.profile ?? 'none';
+      }
+      const add = document.querySelector(`[data-vote-new-profile="${game}"]`);
+      setHTML(add, profileOptions(profiles));
+      if (!add.value) add.value = 'none';
+    }
+    $$('[data-count="votos"]').forEach((b) => { b.textContent = `${readyTotal} pronto${readyTotal === 1 ? '' : 's'}`; b.hidden = !readyTotal; });
+  }
+
+  async function addVoter(game) {
+    const input = document.querySelector(`[data-vote-player="${game}"]`);
+    const select = document.querySelector(`[data-vote-new-profile="${game}"]`);
+    const player = (input.value ?? '').trim();
+    if (!player) return shake(input);
+    const profile = select.value && select.value !== 'none' ? select.value : null;
+    if (await api('POST', 'votes', { game, player, profile })) {
+      input.value = '';
+      toast(`${player} adicionado`, 'info');
+    } else shake(input);
+  }
+
+  // Abre a página de voto no perfil do nick. Ainda sem liberar: pergunta antes, porque o voto pode não contar.
+  async function openVote(id) {
+    const v = state.votes?.voters?.find((x) => x.id === id);
+    if (!v) return;
+    if (!voteReady(v) && !(await ask({
+      title: `Votar com ${v.player} de novo?`,
+      text: `A página de voto foi aberta há menos de 24 h. Se você votou nela, o idlehub só aceita outro voto daqui a ${duration(v.readyAt - Date.now())}.`,
+      ok: 'Abrir mesmo assim',
+    }))) return;
+    if (await api('POST', `votes/${encodeURIComponent(id)}/open`)) toast(`Página de voto de ${v.player} aberta no navegador: é só clicar em Votar.`, 'info');
+  }
+
+  // Abre todos os que já podem votar, um de cada vez, para o navegador não se perder com várias janelas juntas.
+  async function openAllVotes(game) {
+    const list = votersOf(game).filter(voteReady);
+    for (const [i, v] of list.entries()) {
+      if (i) await new Promise((r) => setTimeout(r, 800));
+      if (!(await api('POST', `votes/${encodeURIComponent(v.id)}/open`))) return;
+    }
+    if (list.length) toast(`${list.length} páginas de voto abertas: é só clicar em Votar em cada uma.`, 'info');
+  }
+
+  function renderHistory() {
+    const days = state.pointsHistory ?? [];
+    // Contas vinculadas primeiro, depois as que só aparecem no histórico (desvinculadas).
+    const logins = [...new Set([...(state.points?.accounts ?? []).map((a) => a.login), ...days.flatMap((d) => Object.keys(d.accounts))])];
+    if (!days.length || !logins.length) {
+      setHTML($('history'), '<div class="empty">O histórico aparece quando as contas (Twitch ou Kick) ganharem os primeiros pontos com o painel aberto.</div>');
+      setHTML($('history-reasons'), '');
+      return;
+    }
+    setHTML($('history'), `<table>
+      <tr><th>Dia</th>${logins.map((l) => `<th class="num">${esc(l)}</th>`).join('')}<th class="num">Total</th></tr>
+      ${days.map((d) => {
+        const cells = logins.map((l) => {
+          const r = d.accounts[l];
+          return r ? `<td class="num" title="${esc(reasonsText(r))}"><b>+${fmt(sumPoints(r))}</b></td>` : '<td class="num none">—</td>';
+        });
+        const total = logins.reduce((t, l) => t + sumPoints(d.accounts[l]), 0);
+        return `<tr><td>${dayLabel(d.day)}</td>${cells.join('')}<td class="num total">+${fmt(total)}</td></tr>`;
+      }).join('')}
+    </table><div class="meta" style="margin-top:var(--wa-space-xs)">Toque ou passe o mouse num valor para ver de onde vieram os pontos. O resumo dos últimos 7 dias está logo abaixo.</div>`);
+
+    // Soma dos últimos 7 dias, por motivo e por conta.
+    const week = {};
+    for (const d of days.slice(0, 7)) {
+      for (const [login, reasons] of Object.entries(d.accounts)) {
+        for (const [code, r] of Object.entries(reasons)) {
+          const e = ((week[code] ??= {})[login] ??= { points: 0, count: 0 });
+          e.points += r.points;
+          e.count += r.count;
+        }
+      }
+    }
+    const codes = Object.keys(week).sort((a, b) => sumPoints(week[b]) - sumPoints(week[a]));
+    setHTML($('history-reasons'), `<table>
+      <tr><th>Motivo</th>${logins.map((l) => `<th class="num">${esc(l)}</th>`).join('')}<th class="num">Total</th></tr>
+      ${codes.map((code) => `<tr><td>${esc(reasonName(code))}</td>${logins.map((l) => {
+        const e = week[code][l];
+        if (!e) return '<td class="num none">—</td>';
+        const times = code === 'WATCH' || code === 'OTHER' ? '' : `<span class="detail">${e.count}×</span>`;
+        return `<td class="num">+${fmt(e.points)}${times}</td>`;
+      }).join('')}<td class="num total">+${fmt(sumPoints(week[code]))}</td></tr>`).join('')}
+    </table>`);
+  }
+
+  // Seletor de perfil do navegador de uma conta (para o ▶).
+  function profileSelects(platform, accounts, profiles) {
+    return accounts.map((a) => `<div class="setting-row"><span><b>${esc(a.login)}</b></span>
+      <wa-select size="small" data-profile-platform="${platform}" data-key="${esc(accountKey(platform, a))}" style="min-width:220px">
+        <wa-option value="none">Qualquer perfil (o último que usei)</wa-option>
+        ${profiles.map((p) => `<wa-option value="${esc(p.dir)}">${esc(p.name)}</wa-option>`).join('')}
+      </wa-select></div>`).join('');
+  }
+
+  function renderConfig() {
+    const k = state.kick;
+    const browsers = k.browsers ?? [];
+    setHTML($('browser-select'), browsers.map((b) => `<wa-option value="${esc(b.id)}">${esc(b.name)}</wa-option>`).join('')
+      || '<wa-option value="">Nenhum encontrado</wa-option>');
+    $('browser-select').value = k.browser ?? '';
+    $('browser-select').disabled = browsers.length < 2;
+
+    const profiles = k.availableProfiles ?? [];
+    const twitch = state.points?.accounts ?? [];
+    const kickAccounts = k.points?.accounts ?? [];
+    const lolKickAccounts = accountsOf('lolkick');
+    setHTML($('twitch-profiles'), twitch.length ? profileSelects('twitch', twitch, profiles) : '<div class="empty">Vincule uma conta de pontos em Pokeidle → Twitch.</div>');
+    setHTML($('kick-profiles'), kickAccounts.length ? profileSelects('kick', kickAccounts, profiles) : '<div class="empty">Adicione uma conta em Pokeidle → Kick.</div>');
+    setHTML($('lolkick-profiles'), lolKickAccounts.length ? profileSelects('lolkick', lolKickAccounts, profiles) : '<div class="empty">Adicione uma conta em LoLdle → Kick.</div>');
+    for (const [platform, list] of [['twitch', twitch], ['kick', kickAccounts], ['lolkick', lolKickAccounts]]) {
+      for (const a of list) {
+        const select = document.querySelector(`[data-profile-platform="${platform}"][data-key="${CSS.escape(accountKey(platform, a))}"]`);
+        if (select && select.value !== (a.profile ?? 'none')) select.value = a.profile ?? 'none';
+      }
+    }
+
+    const u = state.update;
+    setHTML($('update-status'), !u ? 'Reinicie o servidor para ver a versão.'
+      : `Versão <b>${esc(u.current)}</b>. ${u.installed ? `A ${esc(u.installed)} já foi instalada: feche a janela preta e abra o iniciar.bat de novo.`
+        : u.available ? `Saiu a ${esc(u.latest)}: use o aviso no topo para atualizar.`
+        : u.error ? `Não deu para procurar agora: ${esc(u.error.replace(/^não deu para procurar atualização /, ''))}`
+        : u.checkedAt ? 'É a mais nova.' : 'O painel procura versão nova sozinho a cada 6 horas.'}
+        <div class="meta">A atualização troca só os arquivos do programa. As suas contas, canais e histórico continuam.</div>`);
+    $$('[data-action="update-check"]').forEach((b) => (b.loading = !!u?.checking));
+
+    setHTML($('kick-app-status'), k.appConfigured && !k.error
+      ? '<wa-callout variant="success" size="small"><wa-icon slot="icon" name="circle-check"></wa-icon>Conectado à API da Kick.</wa-callout>'
+      : k.appConfigured && k.error ? `<wa-callout variant="danger" size="small"><wa-icon slot="icon" name="circle-exclamation"></wa-icon>Erro na API da Kick: ${esc(k.error)}</wa-callout>`
+      : '<wa-callout variant="neutral" size="small"><wa-icon slot="icon" name="circle-info"></wa-icon>Sem app, o painel funciona do mesmo jeito, só vê as lives um canal de cada vez. Você pode ignorar esta parte.</wa-callout>');
+  }
+
+  // ---------- Ações ----------
+
+  // Espera o servidor voltar depois de reiniciar e recarrega a página (que pode ser a da versão nova).
+  async function waitForServer() {
+    await new Promise((r) => setTimeout(r, 1500));
+    for (let i = 0; i < 60; i++) {
+      const ok = await fetch('/api/state').then((r) => r.ok, () => false);
+      if (ok) return location.reload();
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    toast('O servidor não voltou. Veja a janela preta (a que abriu com o iniciar.bat) e abra o iniciar.bat de novo se ela estiver fechada.');
+  }
+
+  // Pede para o servidor reiniciar e recarrega a página quando ele voltar.
+  async function restartServer() {
+    if (!(await ask({
+      title: 'Reiniciar o servidor?',
+      text: 'As contas de pontos param por alguns segundos e voltam sozinhas.',
+      ok: 'Reiniciar', brand: 'orange',
+    }))) return;
+    $$('[data-restart]').forEach((b) => (b.loading = true));
+    clearInterval(poller);
+    await fetch('/api/restart', { method: 'POST' }).catch(() => {});
+    await waitForServer();
+    $$('[data-restart]').forEach((b) => (b.loading = false));
+  }
+
+  // Baixa a versão nova do GitHub. Com o iniciar.bat, o servidor reinicia sozinho e a página recarrega.
+  async function installUpdate() {
+    const u = state.update;
+    if (!(await ask({
+      title: `Atualizar para a versão ${u.latest}?`,
+      text: 'As contas de pontos param por alguns segundos e voltam sozinhas. Suas contas e canais continuam.',
+      ok: 'Atualizar', brand: 'orange',
+    }))) return;
+    $$('[data-action="update-install"]').forEach((b) => (b.loading = true));
+    clearInterval(poller);
+    let data;
+    try {
+      const res = await fetch('/api/update', { method: 'POST' });
+      data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+    } catch (err) {
+      toast(err.message || 'Não deu para atualizar. Tente de novo em alguns minutos.');
+      $$('[data-action="update-install"]').forEach((b) => (b.loading = false));
+      poller = setInterval(() => api('GET', 'state'), 5000);
+      return;
+    }
+    if (data.updated.restart) {
+      toast(`Versão ${data.updated.version} instalada. Reiniciando…`, 'info');
+      return waitForServer();
+    }
+    state = data;
+    render();
+    poller = setInterval(() => api('GET', 'state'), 5000);
+  }
+
+  // Botão do meio (scroll) no ▶ também abre a live, para abrir várias seguidas como links em abas novas.
+  // O mousedown tira a rolagem automática que o Windows liga ao apertar o scroll.
+  document.addEventListener('mousedown', (e) => {
+    if (e.button === 1 && e.target.closest('[data-action="points-open"]')) e.preventDefault();
+  });
+  document.addEventListener('auxclick', (e) => {
+    const el = e.button === 1 && e.target.closest('[data-action="points-open"]');
+    if (!el) return;
+    e.preventDefault();
+    const { platform, key, channel } = el.dataset;
+    api('POST', `${accountPath(platform, key)}/open`, { channel });
+  });
+
+  document.addEventListener('click', async (e) => {
+    const nav = e.target.closest('a[data-page]');
+    if (nav) {
+      e.preventDefault();
+      show(nav.dataset.page);
+      return;
+    }
+    if (e.target.closest('[data-restart]')) return restartServer();
+    const detail = e.target.closest('.history td[title]');
+    if (detail) return toast(detail.title, 'info');
+
+    const el = e.target.closest('[data-action]');
+    if (!el || el.disabled) return;
+    const { action, channel, login, platform, key } = el.dataset;
+    const path = accountPath(platform || 'twitch', key);
+    if (action === 'points-link') api('POST', 'points/link');
+    if (action === 'vote-add') addVoter(el.dataset.voteGame);
+    if (action === 'vote-open') openVote(key);
+    if (action === 'vote-all') openAllVotes(el.dataset.voteGame);
+    if (action === 'vote-remove') {
+      const v = state.votes?.voters?.find((x) => x.id === key);
+      if (v && await ask({ title: `Tirar ${v.player} da lista?`, text: 'O botão de voto desse nick some. Dá para adicionar de novo quando quiser.', ok: 'Tirar', danger: true })) api('DELETE', `votes/${encodeURIComponent(key)}`);
+    }
+    if (action === 'events') openEvents(el.dataset.kind);
+    if (action === 'update-install') installUpdate();
+    if (action === 'update-check') api('POST', 'update/check').then((ok) => ok && toast(state.update?.available ? `Saiu a versão ${state.update.latest}.` : state.update?.error ? 'Não deu para procurar agora. Tente mais tarde.' : 'Você já está na versão mais nova.', state.update?.error ? 'error' : 'info'));
+    if (action === 'go-twitch-link') {
+      show('twitch');
+      api('POST', 'points/link');
+    }
+    if (action === 'go-lol-link') {
+      show('lolidle');
+      api('POST', 'lolidle/link');
+    }
+    if (action === 'go-kick-add') {
+      show('kick');
+      openKickAdd('kick');
+    }
+    if (action === 'go-lolkick-add') {
+      show('lolidle-kick');
+      openKickAdd('lolkick');
+    }
+    if (action === 'add-channel') addChannel(platform);
+    if (action === 'farm-help') $('farm-help').open = true;
+    if (action === 'vote-help') $('vote-help').open = true;
+    if (action === 'points-expand') {
+      dialogAccount = { platform, key };
+      render();
+      $('points-dialog').open = true;
+    }
+    if (action === 'kick-help') $('kick-help').open = true;
+    if (action === 'shop-open') openShop(platform || 'twitch', channel, key || null);
+    if (action === 'shop-reload') loadShop();
+    if (action === 'shop-account' && shop) {
+      shop.key = key;
+      shop.message = null;
+      renderShop();
+    }
+    if (action === 'shop-redeem') redeemReward(el.dataset.reward);
+    if (action === 'shop-filter') {
+      shopFilter = shopFilter === key ? null : key; // clicar no filtro ligado mostra todas de novo
+      renderShop();
+    }
+    if (action === 'kick-add') openKickAdd(platform === 'lolkick' ? 'lolkick' : 'kick');
+    if (action === 'points-cancel') api('DELETE', 'points/link');
+    if (action === 'points-open') {
+      api('POST', `${path}/open`, { channel });
+      // Já usou o ▶: a dica some.
+      try {
+        localStorage.setItem('playTipSeen', '1');
+      } catch {}
+      $$('.play-tip').forEach((t) => (t.hidden = true));
+    }
+    if (action === 'lol-link') api('POST', 'lolidle/link');
+    if (action === 'lol-cancel') api('DELETE', 'lolidle/link');
+    if (action === 'points-unlink') {
+      const verb = isKick(platform) ? 'Remover' : 'Desvincular';
+      if (await ask({ title: `${verb} ${login}?`, text: 'Ela para de juntar pontos. O histórico dela continua guardado.', ok: verb, danger: true, brand: brandOf(platform) })) api('DELETE', path);
+    }
+    if (action === 'lol-unlink' && await ask({ title: `Desvincular ${key} do LoLdle?`, text: 'A conta sai dos chats e para de dar o bônus do LoLdle.', ok: 'Desvincular', danger: true })) api('DELETE', `lolidle/${encodeURIComponent(key)}`);
+    const removeList = { 'remove-twitch': ['canais oficiais', 'channels', 'twitch'], 'remove-lolidle': ['canais do LoLdle', 'lolidle/channels', undefined], 'remove-kick': ['canais da Kick', 'kick/channels', 'kick'], 'remove-lolkick': ['canais do LoLdle na Kick', 'lolkick/channels', 'kick'] }[action];
+    if (removeList) {
+      const [list, path, brand] = removeList;
+      if (await ask({ title: `Remover ${channel}?`, text: `O canal sai da lista de ${list}. Dá para adicionar de novo depois.`, ok: 'Remover', danger: true, brand })) removeChannel(el, `${path}/${encodeURIComponent(channel)}`);
+    }
+  });
+
+  // Favorito "Enviar para o IdleLive": roda no kick.com, lê o session_token (o próprio site lê ele para fazer os pedidos)
+  // e abre o painel com o token depois do #, que não é enviado a nenhum servidor.
+  const bookmarklet = `javascript:(()=>{if(!/(^|\\.)kick\\.com$/.test(location.hostname)){alert('Abra o kick.com, logado na conta, e clique de novo neste favorito.');return}`
+    + `const m=document.cookie.match(/(?:^|;\\s*)session_token=([^;]+)/);`
+    + `if(!m){alert('Não achei o login da Kick nesta página. Entre na sua conta no kick.com e tente de novo. Se continuar, use o jeito manual do painel.');return}`
+    + `window.open('${location.origin}/#kick-token='+encodeURIComponent(decodeURIComponent(m[1])),'_blank')})()`;
+  $('kick-bookmarklet').setAttribute('href', bookmarklet);
+  $('kick-bookmarklet').addEventListener('click', (e) => {
+    e.preventDefault();
+    toast('Arraste este botão para a barra de favoritos; o clique é no kick.com.', 'info');
+  });
+
+  // Token que chegou pelo favorito: pergunta antes de adicionar (outro site poderia abrir este endereço).
+  // O favorito não sabe o jogo: com os dois ligados, o jogador escolhe (Pokeidle ou LoLdle).
+  // Servidor antigo (sem state.lolidle.kick) só tem o Pokeidle.
+  async function addKickFromBookmark(token) {
+    const games = [gameOn('pokeidle') && 'kick', gameOn('lolidle') && state?.lolidle?.kick && 'lolkick'].filter(Boolean);
+    if (!games.length) return toast('Ligue o Pokeidle ou o LoLdle em Configurações → Jogos para adicionar contas da Kick.');
+    const name = (target) => (target === 'lolkick' ? 'LoLdle' : 'Pokeidle');
+    const intro = 'Uma conta da Kick chegou pelo favorito "Enviar para o IdleLive". Se não foi você que clicou nele agora, cancele.';
+    const answer = await ask(games.length === 2
+      ? { title: 'Adicionar conta da Kick', text: `${intro}\n\nEm qual jogo ela vai juntar pontos? Se ela já está num dos jogos, escolha esse para só trocar o token.`, ok: 'LoLdle', alt: 'Pokeidle', brand: 'kick' }
+      : { title: `Adicionar conta da Kick no ${name(games[0])}?`, text: intro, ok: 'Adicionar', brand: 'kick' });
+    if (!answer) return;
+    const target = games.length === 2 ? (answer === 'alt' ? 'kick' : 'lolkick') : games[0];
+    show(target === 'lolkick' ? 'lolidle-kick' : 'kick');
+    const before = new Set(accountsOf(target).map((a) => String(a.id)));
+    if (!(await api('POST', `${target}/accounts`, { token }))) return;
+    const added = accountsOf(target).find((a) => !before.has(String(a.id)));
+    toast(added ? `Conta ${added.login} adicionada no ${name(target)}` : 'Token da conta atualizado', 'info');
+  }
+
+  // Jogo da janela de adicionar conta da Kick: 'kick' (Pokeidle) ou 'lolkick' (LoLdle).
+  let kickAddTarget = 'kick';
+  function openKickAdd(target) {
+    kickAddTarget = target;
+    $('kick-add').label = `Adicionar conta da Kick · ${target === 'lolkick' ? 'LoLdle' : 'Pokeidle'}`;
+    $('kick-token').value = '';
+    $('kick-add').open = true;
+  }
+
+  // Adicionar (ou trocar o token de) uma conta da Kick.
+  $('kick-add-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const token = ($('kick-token').value ?? '').trim();
+    if (!token) {
+      shake($('kick-token'));
+      return toast('Cole o token da conta');
+    }
+    $('kick-add-save').loading = true;
+    const ok = await api('POST', `${kickAddTarget}/accounts`, { token });
+    $('kick-add-save').loading = false;
+    if (ok) {
+      $('kick-token').value = '';
+      $('kick-add').open = false;
+    } else shake($('kick-token'));
+  });
+
+  document.addEventListener('change', async (e) => {
+    const t = e.target;
+    if (t.matches('[data-autostart]')) api('PUT', 'autostart', { enabled: t.checked });
+    if (t.matches('[data-game]')) toggleGame(t);
+    if (t.matches('[data-filter]')) {
+      filters[t.dataset.filter] = t.value;
+      render();
+    }
+    if (t.matches('[data-profile-platform]')) {
+      const { profilePlatform: platform, key } = t.dataset;
+      const current = accountsOf(platform).find((a) => accountKey(platform, a) === key)?.profile ?? 'none';
+      if (t.value !== current) api('PUT', `${accountPath(platform, key)}/profile`, { profile: t.value === 'none' ? null : t.value });
+    }
+    if (t.matches('[data-vote-profile]')) {
+      const id = t.dataset.voteProfile;
+      const current = state.votes?.voters?.find((v) => v.id === id)?.profile ?? 'none';
+      if (t.value && t.value !== current) api('PUT', `votes/${encodeURIComponent(id)}/profile`, { profile: t.value === 'none' ? null : t.value });
+    }
+    if (t.matches('#browser-select') && t.value && t.value !== state.kick.browser) {
+      // Guarda a escolha antes de perguntar: a atualização de 5 s volta o campo para o navegador atual.
+      const browser = t.value;
+      if (!(await ask({
+        title: 'Trocar de navegador?',
+        text: 'Os perfis escolhidos para as contas são apagados, porque cada navegador tem os seus. Depois é só escolher de novo.',
+        ok: 'Trocar', danger: true, brand: 'orange',
+      }))) {
+        t.value = state.kick.browser;
+        return;
+      }
+      api('PUT', 'kick/browser', { browser });
+    }
+  });
+
+  // Adicionar canal: botão "Adicionar" ou Enter no campo. O texto só some se der certo.
+  // Campo com valor que não serve: treme e fica com a borda vermelha por 3 s.
+  function shake(el) {
+    if (!el) return;
+    el.classList.toggle('shake', false);
+    void el.offsetWidth; // recomeça a animação
+    el.classList.add('shake', 'is-error');
+    clearTimeout(el._errorTimer);
+    el._errorTimer = setTimeout(() => el.classList.toggle('is-error', false), 3000);
+  }
+
+  async function addChannel(platform) {
+    const input = document.querySelector(`[data-add="${platform}"]`);
+    const name = (input.value ?? '').trim(); // campo vazio do Web Awesome vale null
+    if (!name) {
+      shake(input);
+      return toast('Digite o nome do canal');
+    }
+    if (await api('POST', { kick: 'kick/channels', lolidle: 'lolidle/channels', lolkick: 'lolkick/channels' }[platform] ?? 'channels', { name })) {
+      input.value = '';
+      toast(`Canal ${name} adicionado`, 'info');
+    } else shake(input);
+  }
+
+  document.addEventListener('keydown', (e) => {
+    const input = e.target.closest?.('[data-add]');
+    if (input && e.key === 'Enter') addChannel(input.dataset.add);
+    const voteInput = e.target.closest?.('[data-vote-player]');
+    if (voteInput && e.key === 'Enter') addVoter(voteInput.dataset.votePlayer);
+  });
+
+  $('kick-app-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const clientId = ($('kick-client-id').value ?? '').trim();
+    const clientSecret = ($('kick-client-secret').value ?? '').trim();
+    if (!clientId || !clientSecret) {
+      if (!clientId) shake($('kick-client-id'));
+      if (!clientSecret) shake($('kick-client-secret'));
+      return toast('Preencha o Client ID e o Client Secret');
+    }
+    if (await api('PUT', 'kick/app', { clientId, clientSecret })) {
+      $('kick-client-secret').value = '';
+      toast('App da Kick salvo', 'info');
+    } else shake($('kick-client-secret'));
+  });
+
+  // ---------- Navegação ----------
+
+  const titles = {
+    visao: ['Visão geral', 'Como estão as contas e quanto rendeu hoje'],
+    twitch: ['Pokeidle', 'Pontos do canal nas lives dos parceiros da Twitch'],
+    kick: ['Pokeidle', 'Pontos do canal nas lives dos parceiros da Kick'],
+    lolidle: ['LoLdle', 'Contas da Twitch no chat das lives dos parceiros'],
+    'lolidle-kick': ['LoLdle', 'Pontos do canal nas lives dos parceiros da Kick'],
+    votos: ['Votar', 'Votos no idlehub.io, cada um no seu perfil do navegador'],
+    historico: ['Histórico', 'Pontos ganhos por dia, na Twitch e na Kick, e de onde vieram'],
+    config: ['Configurações', 'Jogos, iniciar com o Windows, reiniciar, atualizar, navegador e app da Kick'],
+  };
+  let bookmarkToken = null;
+  if (location.hash.startsWith('#kick-token=')) {
+    bookmarkToken = decodeURIComponent(location.hash.slice('#kick-token='.length));
+    history.replaceState(null, '', '#visao'); // a página do jogo abre depois da escolha
+  }
+
+  // Ícones dos jogos nos cards da Visão geral: os mesmos desenhos do menu.
+  $$('[data-game-icon]').forEach((s) => (s.innerHTML = document.querySelector(`#nav a[data-page="${s.dataset.gameIcon}"] svg`)?.outerHTML ?? ''));
+
+  // Barrinha das abas Twitch | Kick. "from" é a posição da aba de antes, para ela deslizar de lá.
+  $$('.game-tabs').forEach((nav) => nav.insertAdjacentHTML('afterbegin', '<span class="tab-ink" aria-hidden="true"></span>'));
+  function placeInk(nav, from) {
+    const ink = nav.querySelector('.tab-ink');
+    const tab = nav.querySelector('a.active');
+    if (!ink || !tab || !nav.offsetParent) return;
+    // Primeira vez: aparece direto no lugar, sem crescer da esquerda.
+    from ??= ink.style.width ? null : { left: tab.offsetLeft, width: tab.offsetWidth };
+    if (from) {
+      ink.style.transition = 'none';
+      ink.style.transform = `translateX(${from.left}px)`;
+      ink.style.width = `${from.width}px`;
+      void ink.offsetWidth;
+      ink.style.transition = '';
+    }
+    ink.style.transform = `translateX(${tab.offsetLeft}px)`;
+    ink.style.width = `${tab.offsetWidth}px`;
+  }
+  const placeInks = (from) => $$('.page.active .game-tabs').forEach((nav) => placeInk(nav, from));
+  // As abas mudam de largura quando o "N ao vivo" aparece ou a fonte carrega.
+  const tabsResize = new ResizeObserver(() => placeInks());
+  $$('.game-tabs a').forEach((a) => tabsResize.observe(a));
+
+  const drawer = $('drawer');
+  function show(target = location.hash.slice(1)) {
+    const page = titles[target] && pageOn(target) ? target : 'visao';
+    const oldTab = document.querySelector('.page.active .game-tabs a.active');
+    const from = oldTab && { left: oldTab.offsetLeft, width: oldTab.offsetWidth };
+    $$('.page').forEach((p) => p.classList.toggle('active', p.id === `page-${page}`));
+    $$('.nav a').forEach((a) => a.classList.toggle('active', (a.dataset.pages ?? a.dataset.page).split(' ').includes(page)));
+    $$('.game-tabs a').forEach((a) => a.classList.toggle('active', a.getAttribute('href') === `#${page}`));
+    placeInks(from);
+    [$('page-title').textContent, $('page-sub').textContent] = titles[page];
+    if (location.hash.slice(1) !== page) history.replaceState(null, '', `#${page}`);
+    drawer.open = false;
+  }
+  show();
+
+  // No celular, a sidebar vira uma gaveta (cópia do menu, sem repetir o id).
+  const navCopy = $('nav').cloneNode(true);
+  navCopy.removeAttribute('id');
+  drawer.append(navCopy);
+  // Endereço mudado à mão (ou pelo voltar do navegador): mostra a página certa.
+  window.addEventListener('hashchange', () => show());
+
+  // Sem os componentes depois de alguns segundos = o visual não veio da internet.
+  setTimeout(() => {
+    if (!customElements.get('wa-card')) $('no-ui').style.display = 'grid';
+  }, 8000);
+  $('menu-btn').addEventListener('click', () => (drawer.open = true));
+
+  // Botão da beirada: recolhe a sidebar só nos ícones (ou abre de novo) e lembra a escolha.
+  const app = document.querySelector('.app');
+  const syncNavToggle = () => {
+    const collapsed = app.classList.contains('nav-collapsed');
+    $('nav-toggle').setAttribute('aria-expanded', String(!collapsed));
+    $('nav-toggle').setAttribute('aria-label', collapsed ? 'Abrir menu' : 'Recolher menu');
+  };
+  let navAnimEnd;
+  $('nav-toggle').addEventListener('click', () => {
+    app.classList.add('anim');
+    const collapsed = app.classList.toggle('nav-collapsed');
+    syncNavToggle();
+    try { localStorage.setItem('navCollapsed', collapsed ? '1' : '0'); } catch {}
+    // Tira a "anim" no fim, para abrir o painel de novo não animar e os menus flutuantes voltarem a aparecer.
+    clearTimeout(navAnimEnd);
+    navAnimEnd = setTimeout(() => app.classList.remove('anim'), 300);
+  });
+  syncNavToggle();
+
+  $('server-host').textContent = location.host;
+  api('GET', 'state').then(() => bookmarkToken && addKickFromBookmark(bookmarkToken));
+  let poller = setInterval(() => api('GET', 'state'), 5000);
+</script>
+</body>
+</html>

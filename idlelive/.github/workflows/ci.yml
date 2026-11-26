@@ -1,0 +1,26 @@
+# Confere o projeto a cada push e pull request: sintaxe de todos os .js e os testes (node --test).
+# Roda no Node 20 (mínimo do projeto), no 22 (primeiro com WebSocket, usado pelo farm da Kick e pelo PubSub da Twitch) e no 24 (LTS atual).
+name: CI
+
+on:
+  push:
+    # Só branches: no push de uma tag, o release.yml já roda a sintaxe e os testes.
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Sintaxe
+        run: npm run check
+      - name: Testes
+        run: npm test
