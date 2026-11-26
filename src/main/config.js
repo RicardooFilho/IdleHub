@@ -8,8 +8,10 @@ const DEFAULT_SETTINGS = {
   watchdogIntervalSec: 30, // de quanto em quanto tempo cada conta é verificada
   reloadAfterFailures: 2, // verificações seguidas sem resposta antes de recarregar
   memoryLimitMB: 1500, // recarrega a conta se passar disso (0 = sem limite)
-  backgroundFps: 5, // FPS das contas escondidas (0 = sem limite)
-  mosaicFps: 20, // FPS das contas visíveis no mosaico (0 = sem limite)
+  // FPS só limita a animação; os temporizadores do jogo rodam em 100% mesmo escondido.
+  // 30 é seguro também para jogos que contam o progresso por quadro desenhado.
+  backgroundFps: 30, // FPS das contas escondidas (0 = sem limite)
+  mosaicFps: 30, // FPS das contas visíveis no mosaico (0 = sem limite)
   muteAll: true, // true = tudo mudo; false = só a conta expandida toca som
   closeToTray: true,
   notifyWindows: true,
