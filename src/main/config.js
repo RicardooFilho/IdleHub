@@ -19,8 +19,9 @@ const DEFAULT_SETTINGS = {
   startMinimized: false,
 };
 
+// IDLEHUB_DATA: pasta de dados de teste (o main.js também usa) e o que os testes usam, fora do Electron.
 function file() {
-  return path.join(app.getPath('userData'), 'config.json');
+  return path.join(process.env.IDLEHUB_DATA || app.getPath('userData'), 'config.json');
 }
 
 function empty() {

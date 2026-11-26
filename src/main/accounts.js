@@ -537,4 +537,5 @@ class AccountManager {
   }
 }
 
-module.exports = { AccountManager };
+// probeInPage sai também para os testes (test/probe.test.js).
+module.exports = { AccountManager, probeInPage };
