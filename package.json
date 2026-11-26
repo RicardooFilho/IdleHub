@@ -9,9 +9,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "icon": "node scripts/make-icon.js",
-    "dist": "npm run icon && electron-builder --win",
-    "release": "npm run icon && electron-builder --win --publish always"
+    "dist": "electron-builder --win",
+    "release": "electron-builder --win --publish always"
   },
   "build": {
     "appId": "com.idlehub.app",
@@ -22,11 +21,12 @@
     "files": [
       "src/**/*",
       "build/icon.png",
+      "build/icon.ico",
       "package.json"
     ],
     "win": {
       "target": "nsis",
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,

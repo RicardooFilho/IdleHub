@@ -13,14 +13,17 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 const APP_ID = 'com.idlehub.app';
-app.setAppUserModelId(APP_ID);
+// Em dev (npm start) não define o ID: assim a barra de tarefas usa o ícone da janela.
+if (app.isPackaged) app.setAppUserModelId(APP_ID);
 // User-agent de Chrome comum (alguns sites recusam o "Electron" no UA).
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 app.userAgentFallback = app.userAgentFallback
   .replace(/\sElectron\/\S+/i, '')
   .replace(new RegExp(`\\s${escapeRe(app.getName())}\\/\\S+`, 'i'), '');
 
+// Ícone: pixel art do IdleLive. .ico (vários tamanhos) para janela e bandeja; .png para notificações.
 const ICON = path.join(__dirname, '../../build/icon.png');
+const ICON_ICO = path.join(__dirname, '../../build/icon.ico');
 
 let cfg;
 let win = null;
@@ -79,7 +82,7 @@ function updateTrayMenu() {
 }
 
 function createTray() {
-  const img = nativeImage.createFromPath(ICON).resize({ width: 32, height: 32 });
+  const img = nativeImage.createFromPath(ICON_ICO);
   tray = new Tray(img);
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -104,7 +107,7 @@ function createWindow() {
     show: false,
     backgroundColor: '#0b0d12',
     autoHideMenuBar: true,
-    icon: ICON,
+    icon: ICON_ICO,
     title: 'IdleHub',
     webPreferences: {
       preload: path.join(__dirname, '../preload/ui.js'),
