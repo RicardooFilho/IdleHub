@@ -171,6 +171,19 @@ test('pasta com git só avisa, não instala', async () => {
   await assert.rejects(updater.install(), /git/);
 });
 
+test('pasta dentro de um repositório git (idlelive/ no IdleHub) também só avisa', async () => {
+  const repo = tmpDir();
+  fs.mkdirSync(path.join(repo, '.git'));
+  const root = path.join(repo, 'idlelive');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '1.0.0' }));
+  const updater = new Updater({ root });
+  globalThis.fetch = fakeGitHub('1.1.0', {});
+  await updater.check();
+  assert.equal(updater.state().canInstall, false);
+  await assert.rejects(updater.install(), /git/);
+});
+
 test('erro de rede ao procurar vira aviso, sem derrubar nada', async () => {
   const updater = new Updater({ root: appDir() });
   globalThis.fetch = async () => {

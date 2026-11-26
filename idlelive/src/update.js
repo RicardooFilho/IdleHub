@@ -104,13 +104,22 @@ export async function fetchLatest() {
   };
 }
 
+export function insideGit(dir) {
+  for (let d = path.resolve(dir); ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) return true;
+    if (path.dirname(d) === d) return false;
+  }
+}
+
 export class Updater {
   constructor({ log = () => {}, root = APP_ROOT } = {}) {
     this.log = log;
     this.root = root;
     this.current = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version ?? '0.0.0';
     // Pasta do git (quem programa): atualizar por cima bagunçaria o repositório, então só avisa.
-    this.git = fs.existsSync(path.join(root, '.git'));
+    // Procura o .git também nas pastas de cima: dentro do IdleHub (idlelive/), o repositório é o do IdleHub,
+    // e a release do IdleLive avulso trocaria o código dele.
+    this.git = insideGit(root);
     this.latest = null;
     this.checkedAt = 0;
     this.checking = null;
