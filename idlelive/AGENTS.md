@@ -4,7 +4,9 @@ Leia antes de mexer no projeto. Elas valem para qualquer agente (Claude, Copilot
 
 ## Dentro do IdleHub
 
-Esta pasta é o IdleLive importado para o IdleHub, onde ele aparece como **Painel**. Valem as regras do [AGENTS.md do IdleHub](../AGENTS.md) e, para o código desta pasta, as regras abaixo, com estas diferenças:
+**O IdleHub é a casa do IdleLive.** Esta pasta é a única versão oficial do código: toda mudança no IdleLive é feita aqui. O repositório antigo (`RicardooFilho/idlelive`, pasta `twitch-chat-presence`) está congelado: não faça commits nem releases nele e não copie código de lá para cá. Quem usa o IdleLive avulso deve passar para o IdleHub (**Configurações → Importar dados do IdleLive**).
+
+Aqui ele aparece como **Painel**. Valem as regras do [AGENTS.md do IdleHub](../AGENTS.md) e, para o código desta pasta, as regras abaixo, com estas diferenças:
 
 - O IdleHub roda o `server.js` num processo separado (`src/main/idlelive.js`), com `IDLELIVE_EMBEDDED=1`, `IDLELIVE_DATA_DIR=%APPDATA%/IdleHub/idlelive` e porta 3000. Nesse modo o servidor não se atualiza sozinho, não mexe no "Iniciar com o Windows" e o "Reiniciar servidor" funciona (o IdleHub reabre o processo ao receber o código 75). O modo avulso (`iniciar.bat`) continua funcionando igual.
 - **O código precisa funcionar nos dois modos.** No painel, `state.embedded` é `true` e `state.update` vem `null` dentro do IdleHub. Recurso novo que mexa com atualização, início com o Windows, reinício ou com a janela preta: confira `state.embedded` no servidor (`EMBEDDED`) e esconda na página com `body.embedded` (regra no fim do `<style>`).
@@ -12,7 +14,7 @@ Esta pasta é o IdleLive importado para o IdleHub, onde ele aparece como **Paine
 - **Porta:** não mude o padrão 3000. O IdleHub depende dela para nunca rodar junto com o IdleLive avulso (refresh token da Twitch só vale uma vez), e o favorito "Enviar para o IdleLive" usa o endereço do painel.
 - **Testes:** rode `npm run test:idlelive` na raiz do IdleHub (sintaxe + `node --test` desta pasta). O CI que vale é o da raiz (`.github/workflows/ci.yml`, job `idlelive`, no Node 20, 22 e 24, como antes); os workflows de `idlelive/.github/` não rodam aqui.
 - Para testar sem derrubar as contas de ninguém, rode o IdleHub com `IDLEHUB_DATA` e `IDLEHUB_IDLELIVE_PORT` (outra pasta e outra porta), em vez de copiar esta pasta.
-- **Changelog e versões:** mudanças entram no `CHANGELOG.md` da raiz e vão junto com cada versão do IdleHub. O `CHANGELOG.md`, o `src/update.js` e o `release.yml` desta pasta são do IdleLive avulso.
+- **Changelog e versões:** mudanças entram no `CHANGELOG.md` da raiz e vão junto com cada versão do IdleHub. O `CHANGELOG.md` desta pasta é histórico; o `src/update.js`, o `release.yml` e a seção **Versões e atualização** lá embaixo são do IdleLive avulso e não valem mais para publicar. Rodado pelo `iniciar.bat` desta pasta, o atualizador não instala nada (a pasta fica dentro do git do IdleHub, `insideGit()`), para uma release antiga não trocar o código daqui.
 - **Commits:** seguem as regras do IdleHub (Conventional Commits, sem mencionar IA), não a regra "Commits em português" lá de baixo.
 - O visual da interface do IdleHub (em volta do Painel) segue o [DESIGN.md da raiz](../DESIGN.md), com a mesma base deste [DESIGN.md](DESIGN.md).
 

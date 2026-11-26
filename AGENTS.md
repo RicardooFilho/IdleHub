@@ -11,6 +11,8 @@ IdleHub é um app de PC (Electron, Windows) para quem joga jogos idle de navegad
 
 O público é de jogadores, não programadores, e o app é distribuído para amigos pelo instalador. Veja o [README.md](README.md).
 
+**O IdleHub é a casa do IdleLive.** A pasta `idlelive/` é a única versão oficial do código dele. O repositório antigo (`RicardooFilho/idlelive`, pasta local `twitch-chat-presence`) está congelado: não faça commits nem releases nele e não traga código de lá. Mudanças no IdleLive são feitas em `idlelive/`, seguindo o [idlelive/AGENTS.md](idlelive/AGENTS.md), e saem junto com as versões do IdleHub.
+
 ## A regra mais importante
 
 **Os jogos nunca podem parar de rodar.** Escondidos, minimizados, com o Painel ou uma janela aberta, ou com o app só perto do relógio, os temporizadores dos jogos continuam em 100%:

@@ -9,6 +9,10 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 - Botões, ícones e fonte vêm junto com o app: a janela funciona mesmo sem internet.
 - Confirmações (remover conta, excluir jogo) agora são janelas do próprio IdleHub, com o que vai acontecer explicado.
 - Respostas rápidas aparecem no topo da janela (ex.: "Configurações salvas.").
+- O IdleLive agora vive dentro do IdleHub: as novidades dele chegam pelas atualizações do IdleHub.
+
+### Correções
+- IdleLive aberto pelo `iniciar.bat` de dentro da pasta do IdleHub não instala mais a versão do IdleLive avulso por cima do código do IdleHub.
 
 ## 25/11/2026
 
