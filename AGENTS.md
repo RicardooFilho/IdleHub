@@ -42,7 +42,8 @@ Não troque nada disso sem medir antes (contas escondidas e minimizadas, com `se
 
 ## Testes
 
-- Antes de terminar, rode `npm run check` (sintaxe), `npm test` (testes do IdleHub, `test/*.test.js`) e, se mexeu em `idlelive/`, `npm run test:idlelive`. O GitHub Actions roda os três a cada push.
+- Antes de terminar, rode `npm run check` (sintaxe), `npm test` (testes do IdleHub, `test/*.test.js`) e, se mexeu em `idlelive/`, `npm run test:idlelive`. O GitHub Actions roda os três a cada push (o IdleHub no Node 22 e 24; o IdleLive no 20, 22 e 24, porque o avulso aceita Node 20).
+- Mexeu em `idlelive/`? Leia também o [idlelive/AGENTS.md](idlelive/AGENTS.md), principalmente a seção **Dentro do IdleHub**.
 - Testes usam `node:test` e `node:assert`, sem internet e sem os dados reais: defina `IDLEHUB_DATA` com uma pasta temporária **antes** de carregar `src/main/config.js`.
 - Mudou lógica em `src/main/`? Crie ou ajuste o teste do módulo. A interface não tem testes: rode o app (`npm start`) com dados de teste e confira na tela.
 - Para ver a interface sem abrir a janela na mão: `IDLEHUB_DEBUG=1` mostra o console da interface e o estado das contas no terminal, e `IDLEHUB_UI_EVAL` roda um trecho na interface depois de abrir.

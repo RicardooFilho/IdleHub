@@ -1,5 +1,7 @@
-# Confere o IdleHub a cada push e pull request: sintaxe, testes do app e testes do IdleLive (pasta idlelive/).
-# O IdleLive pede Node 20+; o 22 é o primeiro com WebSocket (farm da Kick e PubSub da Twitch); o 24 é o LTS atual.
+# Confere o projeto a cada push e pull request.
+# - app: sintaxe e testes do IdleHub (Node 22 e 24; o Electron já traz o Node dele).
+# - idlelive: sintaxe e testes do Painel (pasta idlelive/), nas mesmas versões do IdleLive avulso:
+#   Node 20 (mínimo dele), 22 (primeiro com WebSocket, usado pelo farm da Kick e pelo PubSub da Twitch) e 24 (LTS atual).
 name: CI
 
 on:
@@ -8,7 +10,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  app:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -27,7 +29,25 @@ jobs:
         run: npm ci
       - name: Sintaxe
         run: npm run check
-      - name: Testes do IdleHub
+      - name: Testes
         run: npm test
-      - name: Testes do IdleLive
-        run: npm run test:idlelive
+
+  idlelive:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    defaults:
+      run:
+        working-directory: idlelive
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      # O IdleLive não tem dependências: não precisa de npm ci.
+      - name: Sintaxe
+        run: node scripts/check.js
+      - name: Testes
+        run: node --test
