@@ -1,0 +1,33 @@
+# Confere o IdleHub a cada push e pull request: sintaxe, testes do app e testes do IdleLive (pasta idlelive/).
+# O IdleLive pede Node 20+; o 22 é o primeiro com WebSocket (farm da Kick e PubSub da Twitch); o 24 é o LTS atual.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    env:
+      # Os testes não abrem o Electron: não precisa baixar o binário.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Dependências
+        run: npm ci
+      - name: Sintaxe
+        run: npm run check
+      - name: Testes do IdleHub
+        run: npm test
+      - name: Testes do IdleLive
+        run: npm run test:idlelive
