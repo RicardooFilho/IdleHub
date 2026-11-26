@@ -10,7 +10,8 @@
   "scripts": {
     "start": "electron .",
     "icon": "node scripts/make-icon.js",
-    "dist": "npm run icon && electron-builder --win"
+    "dist": "npm run icon && electron-builder --win",
+    "release": "npm run icon && electron-builder --win --publish always"
   },
   "build": {
     "appId": "com.idlehub.app",
@@ -32,7 +33,14 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "RicardooFilho",
+        "repo": "IdleHub"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^45.5.0",

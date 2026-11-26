@@ -21,18 +21,17 @@ Sai em `dist/IdleHub Setup <versão>.exe`. Sem certificado de assinatura, o
 Windows mostra "O Windows protegeu o computador" na primeira vez: é só clicar em
 **Mais informações → Executar assim mesmo**.
 
-### Atualização automática (opcional)
+### Publicar uma versão nova (atualização automática)
 
-O código está em `RicardooFilho/IdleHub`. Para os amigos receberem atualizações
-sozinhos, os releases precisam ser públicos (repositório público, ou um segundo
-repositório público só para os instaladores).
+O app de cada amigo verifica os releases de `RicardooFilho/IdleHub` ao abrir e a
+cada 6 horas, baixa a versão nova e instala ao fechar.
 
-1. Adicione em `package.json`, dentro de `"build"`:
-   ```json
-   "publish": [{ "provider": "github", "owner": "RicardooFilho", "repo": "IdleHub" }]
+1. Aumente `version` no `package.json` (ex.: `0.1.0` → `0.2.0`).
+2. Rode, com um token do GitHub:
+   ```powershell
+   $env:GH_TOKEN = (gh auth token); npm run release
    ```
-2. Aumente `version` no `package.json` e rode `npx electron-builder --win --publish always`
-   com a variável `GH_TOKEN` definida. O app de todo mundo baixa a versão nova sozinho.
+3. Publique o rascunho de release que aparece em GitHub → Releases.
 
 ## Como funciona
 
