@@ -1,12 +1,31 @@
 // Preload das páginas dos jogos. Não expõe nada para a página; só injeta,
 // antes dos scripts do jogo:
 //  1) "sempre visível": o jogo não pausa quando a conta está escondida;
-//  2) limitador de FPS controlado pelo painel (economiza CPU/GPU).
+//  2) limitador de FPS controlado pelo painel (economiza CPU/GPU);
+//  3) sem chave de acesso (passkey): evita a janela do Windows Hello pedindo
+//     chave de segurança no login do Google; o site cai no login com senha.
 const { webFrame } = require('electron');
 
 function patch() {
   if (window.__idleHub) return;
   window.__idleHub = true;
+
+  try {
+    const blocked = () => Promise.reject(new DOMException('Chave de acesso desativada no IdleHub', 'NotAllowedError'));
+    const C = window.CredentialsContainer && CredentialsContainer.prototype;
+    if (C) {
+      const get = C.get;
+      const create = C.create;
+      C.get = function (o) {
+        return o && o.publicKey ? blocked() : get.call(this, o);
+      };
+      C.create = function (o) {
+        return o && o.publicKey ? blocked() : create.call(this, o);
+      };
+    }
+    delete window.PublicKeyCredential;
+    if ('PublicKeyCredential' in window) window.PublicKeyCredential = undefined;
+  } catch (e) {}
 
   try {
     Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get: () => false });

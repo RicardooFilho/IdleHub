@@ -169,17 +169,16 @@ class AccountManager {
 
   createView(rt, g) {
     const [gid, aid] = rt.key.split(':');
-    const view = new WebContentsView({
-      webPreferences: {
-        partition: partitionFor(gid, aid),
-        preload: path.join(__dirname, '../preload/game.js'),
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        backgroundThrottling: false,
-        spellcheck: false,
-      },
-    });
+    const webPreferences = {
+      partition: partitionFor(gid, aid),
+      preload: path.join(__dirname, '../preload/game.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+      spellcheck: false,
+    };
+    const view = new WebContentsView({ webPreferences });
     view.setBackgroundColor('#0f1117');
     view.setVisible(false);
     this.win.contentView.addChildView(view);
@@ -195,7 +194,8 @@ class AccountManager {
     const wc = view.webContents;
     wc.setWindowOpenHandler(() => ({
       action: 'allow',
-      overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true },
+      // Pop-ups (ex.: login com Google) usam a mesma sessão e o mesmo preload da conta.
+      overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, webPreferences },
     }));
     wc.on('did-start-loading', () => {
       rt.status = 'loading';
