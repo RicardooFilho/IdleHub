@@ -9,6 +9,21 @@ const MIN_RELOAD_GAP_MS = 60000;
 
 const partitionFor = (gameId, accountId) => `persist:acc-${gameId}-${accountId}`;
 
+// O Google recusa login em apps baseados em Chromium/Electron ("Esse navegador
+// ou app pode não ser seguro"). Só nas páginas de login dele, o painel se
+// apresenta como Firefox. Mesmo valor em src/preload/game.js.
+const GOOGLE_LOGIN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
+const GOOGLE_LOGIN_URLS = ['https://accounts.google.com/*', 'https://accounts.youtube.com/*'];
+
+function setupGoogleLogin(ses) {
+  ses.webRequest.onBeforeSendHeaders({ urls: GOOGLE_LOGIN_URLS }, (details, cb) => {
+    const h = details.requestHeaders;
+    for (const k of Object.keys(h)) if (/^sec-ch-ua/i.test(k)) delete h[k];
+    h['User-Agent'] = GOOGLE_LOGIN_UA;
+    cb({ requestHeaders: h });
+  });
+}
+
 // Roda DENTRO da página do jogo. Precisa ser autocontida.
 function probeInPage(a) {
   const body = document.body;
@@ -179,6 +194,7 @@ class AccountManager {
       spellcheck: false,
     };
     const view = new WebContentsView({ webPreferences });
+    setupGoogleLogin(view.webContents.session);
     view.setBackgroundColor('#0f1117');
     view.setVisible(false);
     this.win.contentView.addChildView(view);
