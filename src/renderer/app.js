@@ -6,12 +6,36 @@ const S = {
   presets: [],
   runtime: { accounts: {}, log: [] },
   totalMem: 0,
-  view: { kind: 'all' }, // all | game | focus
+  view: loadView(), // panel | all | game | focus
   modal: null,
   version: '',
   dataPath: '',
   openAtLogin: false,
   seenLog: 0,
+  idlelive: { status: 'stopped', logs: [] },
+};
+
+// Lembra a última tela (Painel, Todas ou um jogo) entre aberturas do app.
+function loadView() {
+  try {
+    const v = JSON.parse(localStorage.getItem('view'));
+    if (v && ['panel', 'all', 'game'].includes(v.kind)) return v;
+  } catch {}
+  return { kind: 'panel' };
+}
+function saveView() {
+  const v = S.view.kind === 'focus' ? S.view.back : S.view;
+  try {
+    localStorage.setItem('view', JSON.stringify({ kind: v?.kind || 'panel', gameId: v?.gameId }));
+  } catch {}
+}
+
+const IDLELIVE_STATUS = {
+  running: 'Rodando',
+  starting: 'Abrindo…',
+  'port-busy': 'Aberto fora do IdleHub',
+  crashed: 'Parou, reabrindo…',
+  stopped: 'Parado',
 };
 
 const STATUS = {
@@ -49,6 +73,7 @@ function tileMode(g, a, r) {
 function scope() {
   const out = [];
   const v = S.view;
+  if (v.kind === 'panel') return out;
   for (const g of S.config.games) {
     if (v.kind === 'game' && g.id !== v.gameId) continue;
     for (const a of g.accounts) {
@@ -64,6 +89,7 @@ function scope() {
 function render() {
   if (S.view.kind === 'game' && !gameById(S.view.gameId)) S.view = { kind: 'all' };
   if (S.view.kind === 'focus' && !scope().length) S.view = { kind: 'all' };
+  saveView();
   renderRail();
   renderTop();
   renderContent();
@@ -72,7 +98,9 @@ function render() {
 
 function renderRail() {
   const v = S.view;
-  let h = `<button class="rail-btn ${v.kind === 'all' ? 'active' : ''}" data-act="view-all" title="Todas as contas">▦</button>
+  let h = `<button class="rail-btn panel-btn ${v.kind === 'panel' ? 'active' : ''}" data-act="view-panel" title="Painel (IdleLive): pontos da Twitch e da Kick">
+      <img src="icon.png" alt="" /><span class="count" data-panel-status hidden></span></button>
+    <button class="rail-btn ${v.kind === 'all' ? 'active' : ''}" data-act="view-all" title="Todas as contas">▦</button>
     <div class="rail-sep"></div>`;
   for (const g of S.config.games) {
     const active = (v.kind === 'game' || v.kind === 'focus') && v.gameId === g.id;
@@ -91,7 +119,12 @@ function renderTop() {
   const v = S.view;
   let title = 'Todas as contas';
   let actions = '';
-  if (v.kind === 'all' || v.kind === 'game') {
+  if (v.kind === 'panel') {
+    title = 'Painel';
+    actions = `
+      <button class="btn" data-act="panel-reload" title="Recarrega a página do painel">⟳ Recarregar página</button>
+      <button class="btn" data-act="panel-browser" title="Abre o painel no navegador do PC">↗ Abrir no navegador</button>`;
+  } else if (v.kind === 'all' || v.kind === 'game') {
     const gid = v.kind === 'game' ? v.gameId : '';
     if (v.kind === 'game') title = esc(gameById(gid).name);
     actions = `
@@ -133,6 +166,7 @@ function bestCols(n, W, H) {
 
 function renderContent() {
   const c = $('#content');
+  if (S.view.kind === 'panel') return renderPanel(c);
   const list = scope();
   if (!S.config.games.length || !list.length) {
     c.style.gridTemplateColumns = '1fr';
@@ -150,6 +184,40 @@ function renderContent() {
   c.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
   c.innerHTML = list.map(tileHtml).join('');
   refreshTiles();
+  scheduleLayout();
+}
+
+// Painel = página do IdleLive. Ela só aparece com o servidor rodando; antes disso, um aviso.
+function panelMode() {
+  return S.idlelive.status === 'running' ? 'live' : S.idlelive.status;
+}
+
+function renderPanel(c) {
+  c.style.gridTemplateColumns = '1fr';
+  c.style.gridTemplateRows = '1fr';
+  const mode = panelMode();
+  if (mode === 'live') {
+    c.innerHTML = `<div class="panel-host" data-panel data-mode="live"></div>`;
+  } else {
+    const msg = {
+      starting: ['⏳', 'Abrindo o painel…', ''],
+      'port-busy': [
+        '🪟',
+        'O IdleLive já está aberto fora do IdleHub',
+        'Feche a janela preta do IdleLive (iniciar.bat). O painel abre aqui sozinho em alguns segundos. Os dois juntos não podem rodar: as contas cairiam.',
+      ],
+      crashed: ['⚠️', 'O painel parou. Abrindo de novo…', ''],
+      stopped: ['⏸', 'Painel parado', ''],
+    }[mode] || ['⏳', 'Abrindo o painel…', ''];
+    const logs = S.idlelive.logs?.slice(-6) || [];
+    c.innerHTML = `<div class="empty" data-panel-mode="${esc(mode)}">
+      <div style="font-size:34px">${msg[0]}</div><h2>${esc(msg[1])}</h2>
+      ${msg[2] ? `<div style="max-width:520px">${esc(msg[2])}</div>` : ''}
+      ${mode === 'crashed' && logs.length ? `<pre class="panel-log">${esc(logs.join('\n'))}</pre>` : ''}
+      ${mode === 'crashed' || mode === 'stopped' ? `<button class="btn" data-act="panel-restart">⟳ Abrir de novo</button>` : ''}
+    </div>`;
+  }
+  c.dataset.panelMode = mode;
   scheduleLayout();
 }
 
@@ -191,7 +259,9 @@ function tileHtml({ g, a, key }) {
 
 // ---------------------------------------------------------------- atualização ao vivo
 function updateRuntime() {
-  if (refreshTiles()) renderContent();
+  if (S.view.kind === 'panel') {
+    if ($('#content').dataset.panelMode !== panelMode()) renderContent();
+  } else if (refreshTiles()) renderContent();
   updateStats();
   updateRail();
   if (S.modal?.kind === 'log') renderModal();
@@ -236,6 +306,7 @@ function refreshTiles() {
 function updateStats() {
   const el = $('#stats');
   if (!el) return;
+  if (S.view.kind === 'panel') return updatePanelStats(el);
   const list = scope();
   let running = 0, sleeping = 0, issues = 0, mem = 0;
   for (const { a, key } of list) {
@@ -252,7 +323,30 @@ function updateStats() {
     <span class="chip" title="Memória das contas mostradas · total do painel">RAM <b>${fmtMem(mem)}</b> · painel ${fmtMem(S.totalMem)}</span>`;
 }
 
+// No Painel: status do IdleLive e quantas contas dos jogos seguem rodando por trás.
+function updatePanelStats(el) {
+  let running = 0, total = 0;
+  for (const g of S.config.games)
+    for (const a of g.accounts) {
+      total++;
+      if (!a.sleeping && rtOf(keyOf(g, a), a).live) running++;
+    }
+  const st = S.idlelive.status;
+  const color = st === 'running' ? 'var(--ok)' : st === 'port-busy' || st === 'crashed' ? 'var(--warn)' : 'var(--muted)';
+  el.innerHTML = `
+    <span class="chip">IdleLive <b style="color:${color}">${esc(IDLELIVE_STATUS[st] || st)}</b></span>
+    ${total ? `<span class="chip" title="As contas dos jogos continuam rodando enquanto você vê o painel">🎮 <b>${running}</b>/${total} contas rodando em segundo plano</span>` : ''}
+    <span class="chip">RAM do app <b>${fmtMem(S.totalMem)}</b></span>`;
+}
+
 function updateRail() {
+  const ps = $('[data-panel-status]');
+  if (ps) {
+    const bad = S.idlelive.status === 'port-busy' || S.idlelive.status === 'crashed';
+    ps.hidden = !bad;
+    ps.textContent = '!';
+    ps.classList.toggle('alert', bad);
+  }
   for (const g of S.config.games) {
     const el = $(`[data-rail-count="${g.id}"]`);
     if (!el) continue;
@@ -294,6 +388,11 @@ function sendLayout() {
     const zoom = focus ? 1 : Math.max(0.25, Math.min(1, r.width / base));
     return { key: el.dataset.live, x: r.left, y: r.top, w: r.width, h: r.height, zoom: Math.round(zoom * 100) / 100, focus };
   });
+  const host = $('[data-panel]');
+  if (host) {
+    const r = host.getBoundingClientRect();
+    tiles.push({ key: '__panel', x: r.left, y: r.top, w: r.width, h: r.height });
+  }
   api.setLayout(tiles);
 }
 
@@ -498,6 +597,10 @@ function settingsHtml(d) {
         ${chk('openAtLogin', 'Abrir junto com o Windows')}
         ${chk('startMinimized', 'Começar minimizado (só o ícone perto do relógio)')}
       </div>
+      <div class="section-title">Painel (IdleLive)</div>
+      <p class="hint">Já usava o IdleLive avulso (iniciar.bat)? Traga as contas da Twitch e da Kick, os canais e o histórico.
+        Feche a janela preta do IdleLive antes e, depois de importar, use só o IdleHub.</p>
+      <button class="btn small" data-act="idlelive-import">📥 Importar dados do IdleLive…</button>
       <div class="section-title">Sobre</div>
       <p class="hint">IdleHub v${esc(S.version)} · Seus dados ficam só neste PC.
         <button class="btn small" data-act="open-data">Abrir pasta de dados</button></p>
@@ -531,6 +634,26 @@ async function onAction(act, el) {
   const key = el.dataset.key || el.closest('[data-key]')?.dataset.key;
   const id = el.dataset.id;
   switch (act) {
+    case 'view-panel':
+      S.view = { kind: 'panel' };
+      return render();
+    case 'panel-reload':
+      return api.idleliveAction('reload-page');
+    case 'panel-browser':
+      return api.idleliveAction('open-browser');
+    case 'panel-restart':
+      S.idlelive = await api.idleliveAction('restart');
+      return render();
+    case 'idlelive-import': {
+      const r = await api.idleliveImport();
+      if (r.canceled) return;
+      if (!r.ok) return alert(r.error);
+      alert(`Pronto! Importei: ${r.files.join(', ')}.\n\nO painel está abrindo com as suas contas.`);
+      if (r.autostartMoved) S.openAtLogin = true;
+      S.modal = null;
+      S.view = { kind: 'panel' };
+      return render();
+    }
     case 'view-all':
       S.view = { kind: 'all' };
       return render();
@@ -661,12 +784,14 @@ async function refreshConfig() {
 async function init() {
   const st = await api.getState();
   Object.assign(S, { config: st.config, presets: st.presets, runtime: st.runtime, version: st.version, dataPath: st.dataPath, openAtLogin: st.openAtLogin });
+  if (st.idlelive) S.idlelive = st.idlelive;
   if (!S.config.onboarded) S.modal = { kind: 'onboard', draft: onboardDraft() };
   render();
 
   api.onState((d) => {
     S.runtime = d.runtime;
     S.totalMem = d.totalMem;
+    if (d.idlelive) S.idlelive = d.idlelive;
     updateRuntime();
   });
   api.onFocusAccount(focusAccount);

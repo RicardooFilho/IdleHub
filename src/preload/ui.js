@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('idle', {
   deleteGame: (id) => ipcRenderer.invoke('game:delete', id),
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
   openData: () => ipcRenderer.invoke('open:data'),
+  idleliveAction: (action) => ipcRenderer.invoke('idlelive:action', action),
+  idleliveImport: () => ipcRenderer.invoke('idlelive:import'),
   onState: (cb) => ipcRenderer.on('state', (_e, d) => cb(d)),
   onFocusAccount: (cb) => ipcRenderer.on('focus-account', (_e, k) => cb(k)),
 });

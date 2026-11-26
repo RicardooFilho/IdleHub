@@ -10,7 +10,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win",
-    "release": "electron-builder --win --publish always"
+    "release": "electron-builder --win --publish always",
+    "test:idlelive": "cd idlelive && node scripts/check.js && node --test"
   },
   "build": {
     "appId": "com.idlehub.app",
@@ -22,7 +23,13 @@
       "src/**/*",
       "build/icon.png",
       "build/icon.ico",
-      "package.json"
+      "package.json",
+      "idlelive/**/*",
+      "!idlelive/test/**",
+      "!idlelive/scripts/**",
+      "!idlelive/.github/**",
+      "!idlelive/iniciar.bat",
+      "!idlelive/{AGENTS,CLAUDE}.md"
     ],
     "win": {
       "target": "nsis",
@@ -40,6 +47,9 @@
         "owner": "RicardooFilho",
         "repo": "IdleHub"
       }
+    ],
+    "asarUnpack": [
+      "idlelive/**/*"
     ]
   },
   "devDependencies": {

@@ -1,8 +1,10 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell, dialog } = require('electron');
 const path = require('path');
 const config = require('./config');
 const { PRESETS, gameFromPreset, sanitizeGame } = require('./games');
 const { AccountManager } = require('./accounts');
+const { IdleLive } = require('./idlelive');
+const { PanelView } = require('./panel');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -29,6 +31,8 @@ let cfg;
 let win = null;
 let tray = null;
 let mgr = null;
+let idlelive = null;
+let panel = null;
 let quitting = false;
 let trayHintShown = false;
 let emitQueued = false;
@@ -59,11 +63,11 @@ function emitState() {
   mgr.updateMetrics(metrics);
   const totalMem = Math.round(metrics.reduce((s, m) => s + (m.memory?.workingSetSize || 0), 0) / 1024);
   const snap = mgr.snapshot();
-  win.webContents.send('state', { runtime: snap, totalMem });
+  win.webContents.send('state', { runtime: snap, totalMem, idlelive: idlelive.snapshot() });
   updateTrayMenu();
   if (process.env.IDLEHUB_DEBUG) {
     const line = Object.entries(snap.accounts).map(([k, a]) => `${k.split(':')[1]}=${a.status}/${a.mem}MB`).join(' ');
-    console.log(`[state] total=${totalMem}MB ${line}`);
+    console.log(`[state] idlelive=${idlelive.status} total=${totalMem}MB ${line}`);
   }
 }
 
@@ -154,9 +158,62 @@ function registerIpc() {
     version: app.getVersion(),
     dataPath: app.getPath('userData'),
     openAtLogin: app.getLoginItemSettings().openAtLogin,
+    idlelive: idlelive.snapshot(),
   }));
 
-  ipcMain.on('layout:set', (_e, tiles) => mgr.setLayout(tiles));
+  // A página do IdleLive vem com a chave "__panel"; o resto são contas dos jogos.
+  ipcMain.on('layout:set', (_e, tiles) => {
+    const list = Array.isArray(tiles) ? tiles : [];
+    panel.setRect(list.find((t) => t.key === '__panel') || null);
+    mgr.setLayout(list.filter((t) => t.key !== '__panel'));
+  });
+
+  ipcMain.handle('idlelive:action', async (_e, action) => {
+    if (action === 'reload-page') panel.reload();
+    if (action === 'open-browser') shell.openExternal(`http://localhost:${idlelive.snapshot().port}`);
+    if (action === 'restart') await idlelive.restart();
+    return idlelive.snapshot();
+  });
+
+  ipcMain.handle('idlelive:import', async () => {
+    const pick = await dialog.showOpenDialog(win, {
+      title: 'Escolha a pasta do IdleLive (onde fica o iniciar.bat)',
+      properties: ['openDirectory'],
+    });
+    if (pick.canceled || !pick.filePaths[0]) return { ok: false, canceled: true };
+    const confirm = await dialog.showMessageBox(win, {
+      type: 'question',
+      buttons: ['Importar', 'Cancelar'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Importar dados do IdleLive',
+      message: 'Trazer as contas, canais e histórico do IdleLive para o IdleHub?',
+      detail:
+        'Feche antes a janela preta do IdleLive. Depois de importar, use só o IdleHub: as duas versões com as mesmas contas fazem a Twitch pedir para vincular de novo.\n\nSe o IdleHub já tiver dados do IdleLive, eles ficam guardados numa cópia.',
+    });
+    if (confirm.response !== 0) return { ok: false, canceled: true };
+    const result = await idlelive.importFrom(pick.filePaths[0]);
+    panel.reload();
+    // O IdleLive avulso pode estar no início do Windows: ligando o PC, ele pegaria a porta 3000 antes do IdleHub.
+    const link = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'Painel de Lives.lnk');
+    if (result.ok && require('fs').existsSync(link)) {
+      const off = await dialog.showMessageBox(win, {
+        type: 'question',
+        buttons: ['Tirar e abrir o IdleHub com o Windows', 'Deixar como está'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'IdleLive no início do Windows',
+        message: 'O IdleLive avulso abre junto com o Windows.',
+        detail: 'Assim ele ocuparia o lugar do painel do IdleHub toda vez que o PC ligar. Recomendo tirar ele do início do Windows e deixar o IdleHub abrir no lugar.',
+      });
+      if (off.response === 0) {
+        require('fs').rmSync(link, { force: true });
+        app.setLoginItemSettings({ openAtLogin: true });
+        result.autostartMoved = true;
+      }
+    }
+    return result;
+  });
   ipcMain.handle('account:action', (_e, key, action) => mgr.action(String(key), String(action)));
   ipcMain.handle('game:action', (_e, gameId, action) => mgr.gameAction(gameId || null, String(action)));
 
@@ -245,7 +302,10 @@ function start() {
   cfg = config.load();
   createWindow();
   mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit });
+  idlelive = new IdleLive({ onChange: scheduleEmit, onReady: () => panel?.onServerReady() });
+  panel = new PanelView({ win, idlelive });
   registerIpc();
+  idlelive.start();
   mgr.sync();
   mgr.startWatchdog();
   createTray();
@@ -261,6 +321,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true;
     mgr?.shutdown();
+    idlelive?.stop();
   });
   app.on('window-all-closed', () => app.quit());
 }
