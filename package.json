@@ -1,0 +1,44 @@
+{
+  "name": "idlehub",
+  "productName": "IdleHub",
+  "version": "0.1.0",
+  "description": "Painel para jogos idle de navegador com várias contas, watchdog e alertas",
+  "main": "src/main/main.js",
+  "author": "IdleHub",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "icon": "node scripts/make-icon.js",
+    "dist": "npm run icon && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.idlehub.app",
+    "productName": "IdleHub",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  }
+}
