@@ -23,7 +23,9 @@ const LIVE_INTERVAL = 60 * 1000;
 const TOKEN_INTERVAL = 30 * 60 * 1000;
 // O botão "Reiniciar servidor" só funciona quando o painel foi aberto pelo iniciar.bat, que repete ao receber esse código.
 const RESTART_CODE = 75;
-const CAN_RESTART = process.env.IDLELIVE_LAUNCHER === '1';
+// Dentro do IdleHub (app de PC), o próprio app reabre o servidor, atualiza tudo e cuida de iniciar com o Windows.
+const EMBEDDED = process.env.IDLELIVE_EMBEDDED === '1';
+const CAN_RESTART = process.env.IDLELIVE_LAUNCHER === '1' || EMBEDDED;
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const PANEL_FILE = path.join(PUBLIC_DIR, 'index.html');
 const FAVICON_FILE = path.join(PUBLIC_DIR, 'favicon.ico');
@@ -305,7 +307,8 @@ function state() {
     maxAccounts: MAX_ACCOUNTS,
     autostart: autostartEnabled(),
     canRestart: CAN_RESTART,
-    update: updater.state(),
+    embedded: EMBEDDED,
+    update: EMBEDDED ? null : updater.state(),
     games: Object.fromEntries(GAMES.map((g) => [g, gameEnabled(g)])),
     channels: config.channels.map((name) => ({
       name,
@@ -372,6 +375,7 @@ async function handleApi(req, res, url) {
 
   // Atualização: /api/update/check (procurar agora) e /api/update (baixar e instalar a versão nova).
   if (req.method === 'POST' && resource === 'update') {
+    if (EMBEDDED) return send(res, 400, { error: 'Dentro do IdleHub, as atualizações chegam pelo próprio app.' });
     if (id === 'check') {
       await updater.check();
       return send(res, 200, state());
@@ -415,6 +419,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'PUT' && resource === 'autostart') {
+    if (EMBEDDED) return send(res, 400, { error: 'Dentro do IdleHub, use Configurações do IdleHub → Abrir junto com o Windows.' });
     const { enabled } = await readBody(req);
     setAutostart(!!enabled);
     log(enabled ? 'Painel vai abrir junto com o Windows' : 'Painel não abre mais junto com o Windows');
@@ -588,7 +593,7 @@ miner.start();
 kickMiner.start();
 lolKickMiner.start();
 lolMiner.start();
-updater.start();
+if (!EMBEDDED) updater.start();
 setInterval(safeUpdateLive, LIVE_INTERVAL);
 setInterval(updateKickLive, LIVE_INTERVAL);
 setInterval(() => miner.ensureFresh().catch((err) => log(`Pontos: erro ao checar token (${err.message})`)), TOKEN_INTERVAL);

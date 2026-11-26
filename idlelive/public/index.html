@@ -540,6 +540,8 @@
     .grid-2 { grid-template-columns: 1fr; }
     header .actions wa-switch { display: none; }
   }
+  /* Dentro do IdleHub: o app cuida de atualizar e de abrir com o Windows. */
+  body.embedded [data-autostart], body.embedded [data-update-row] { display: none; }
 </style>
 </head>
 <body>
@@ -791,7 +793,7 @@
               <wa-button variant="brand" appearance="outlined" size="small" data-restart hidden><wa-icon slot="start" name="rotate-right"></wa-icon>Reiniciar</wa-button>
             </div>
             <wa-divider></wa-divider>
-            <div class="setting-row">
+            <div class="setting-row" data-update-row>
               <span id="update-status">Versão</span>
               <wa-button variant="brand" appearance="outlined" size="small" data-action="update-check"><wa-icon slot="start" name="arrows-rotate"></wa-icon>Procurar atualização</wa-button>
             </div>
@@ -1158,6 +1160,8 @@
     const pokeLive = twitchLive.length + kickLive.length;
     $$('[data-count="pokeidle"]').forEach((b) => { b.textContent = `${pokeLive} ao vivo`; b.hidden = !pokeLive; });
     $$('[data-autostart]').forEach((s) => (s.checked = !!state.autostart));
+    // Dentro do IdleHub: atualização e "Iniciar com o Windows" ficam com o app.
+    document.body.classList.toggle('embedded', !!state.embedded);
     $$('[data-restart]').forEach((b) => (b.hidden = !state.canRestart));
 
     renderGames();
