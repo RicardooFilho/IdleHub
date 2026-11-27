@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   FAILURE_LIMIT, FAILURE_WINDOW_MS, backoffMs, recordFailure, tooManyFailures, classifyPage, createInternetCheck,
+  RECONNECT_LIMIT_MS, reconnectingTooLong,
 } = require('../src/main/recovery');
 
 const SEC = 1000;
@@ -155,4 +156,14 @@ test('a resposta vale por alguns segundos e depois testa de novo', async () => {
   clock = 10_000;
   await check();
   assert.equal(calls, 2);
+});
+
+test('reconectando só vale depois de 3 minutos seguidos', () => {
+  const t0 = 1_000_000;
+  assert.equal(RECONNECT_LIMIT_MS, 3 * MIN);
+  assert.equal(reconnectingTooLong(0, t0), false); // texto não está na tela
+  assert.equal(reconnectingTooLong(t0, t0), false);
+  assert.equal(reconnectingTooLong(t0, t0 + 3 * MIN - 1), false);
+  assert.equal(reconnectingTooLong(t0, t0 + 3 * MIN), true);
+  assert.equal(reconnectingTooLong(t0, t0 + 10 * MIN), true);
 });

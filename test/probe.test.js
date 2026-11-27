@@ -11,7 +11,7 @@ function page({ text = '', href = 'https://jogo.com/', title = '', els = {}, med
     querySelector: (sel) => (sel === 'canvas,img,video,iframe,svg' ? (media ? {} : null) : els[sel] ? { innerText: els[sel] } : null),
   };
 }
-const probe = (w = [], lo = { url: [], text: [] }, st = []) => probeInPage({ lo, st, w });
+const probe = (w = [], lo = { url: [], text: [] }, st = [], rc = []) => probeInPage({ lo, st, rc, w });
 const num = (value, extra = {}) => ({ id: 'n', kind: 'number', selector: '#v', pattern: '', ...extra, _v: value });
 const read = (value, extra) => {
   page({ els: { '#v': value } });
@@ -51,6 +51,20 @@ test('detecta conta aberta em outro lugar pelo texto, sem diferenciar maiúscula
   page({ text: 'aberta em outro lugar' });
   assert.equal(probe().sessionTaken, false);
   assert.equal(probeInPage({ lo: { url: [], text: [] }, w: [] }).sessionTaken, false);
+});
+
+test('detecta a tela de reconectando pelo texto, sem diferenciar maiúsculas', () => {
+  const rc = ['reconectando', 'Connection Lost'];
+  page({ text: 'Reconectando… aguarde' });
+  assert.equal(probe([], undefined, [], rc).reconnecting, true);
+  page({ text: 'ERROR: CONNECTION LOST' });
+  assert.equal(probe([], undefined, [], rc).reconnecting, true);
+  page({ text: 'Bem-vindo! Conexão estável.' });
+  assert.equal(probe([], undefined, [], rc).reconnecting, false);
+  // Sem textos configurados (ou sem o campo, de config antiga), nunca detecta.
+  page({ text: 'Reconectando…' });
+  assert.equal(probe().reconnecting, false);
+  assert.equal(probeInPage({ lo: { url: [], text: [] }, w: [] }).reconnecting, false);
 });
 
 test('alerta de texto ignora maiúsculas', () => {

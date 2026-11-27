@@ -2,6 +2,12 @@
 
 Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes de entrar no IdleHub, está em [idlelive/CHANGELOG.md](idlelive/CHANGELOG.md).
 
+## 27/11/2026
+
+### Novidades
+- **Reconectando preso**: se o jogo ficar com a tela de "Reconectando…" por mais de 3 minutos seguidos, o IdleHub recarrega a conta sozinho. Enquanto isso, ela aparece como **Reconectando…**, sem recarregar antes da hora. Passa pelas mesmas regras de segurança das outras recargas (sem internet não recarrega, e se a conta cair 5 vezes em 10 minutos o IdleHub desiste e avisa).
+- Os textos que indicam isso já vêm preenchidos nos jogos prontos e podem ser editados na tela do jogo, em **Textos de reconectando**.
+
 ## 26/11/2026
 
 ### Novidades

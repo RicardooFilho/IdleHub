@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shel
 const path = require('path');
 const { pathToFileURL } = require('url');
 const config = require('./config');
-const { PRESETS, gameFromPreset, sanitizeGame, migrateSessionTaken } = require('./games');
+const { PRESETS, gameFromPreset, sanitizeGame, migrateSessionTaken, migrateReconnecting } = require('./games');
 const { AccountManager } = require('./accounts');
 const { IdleLive } = require('./idlelive');
 const { PanelView } = require('./panel');
@@ -333,6 +333,7 @@ function migrateConfig() {
       changed = true;
     }
     if (migrateSessionTaken(g)) changed = true;
+    if (migrateReconnecting(g)) changed = true;
   }
   if (changed) saveConfig();
 }

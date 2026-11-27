@@ -39,6 +39,7 @@ const STATUS = {
   crashed: 'Travou',
   'logged-out': 'Deslogada',
   'session-taken': 'Aberta em outro lugar',
+  reconnecting: 'Reconectando…',
   'no-internet': 'Sem internet',
   'server-down': 'Jogo fora do ar',
   challenge: 'Verificação',
@@ -46,7 +47,7 @@ const STATUS = {
   sleeping: 'Dormindo',
   'no-url': 'Sem link',
 };
-const ISSUES = new Set(['unresponsive', 'crashed', 'logged-out', 'no-internet', 'server-down', 'challenge', 'attention', 'session-taken']);
+const ISSUES = new Set(['unresponsive', 'crashed', 'logged-out', 'no-internet', 'server-down', 'challenge', 'attention', 'session-taken', 'reconnecting']);
 const IDLELIVE_STATUS = {
   running: 'Rodando',
   starting: 'Abrindo…',
@@ -554,6 +555,7 @@ function blankGame() {
     accounts: [{ id: '', name: 'Conta 1', sleeping: false }],
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
     sessionTaken: { textIncludes: [] },
+    reconnecting: { textIncludes: [] },
     watchers: [],
   };
 }
@@ -608,6 +610,13 @@ function gameHtml(d) {
       </div>
 
       <div class="form-block">
+        <span class="form-label">Saber quando o jogo fica preso em "Reconectando…"</span>
+        <div class="form-row">
+          <wa-input size="s" label="Textos de reconectando (separados por vírgula)" hint="Ex.: reconectando, connection lost. Se a página mostrar um deles por mais de 3 minutos seguidos, o IdleHub recarrega a conta." data-f="rc-text" value="${esc((d.reconnecting?.textIncludes || []).join(', '))}"></wa-input>
+        </div>
+      </div>
+
+      <div class="form-block">
         <span class="form-label">Alertas</span>
         <p class="meta"><b>Texto</b>: avisa quando a palavra aparece na página (ex.: <code>shiny</code>).
           <b>Número</b>: lê um valor e avisa pela condição. Para achar o valor, expanda uma conta, clique em <b>Inspecionar</b>,
@@ -652,6 +661,7 @@ function collectGame() {
     textIncludes: v('lo-text').split(',').map((s) => s.trim()).filter(Boolean),
   };
   d.sessionTaken = { textIncludes: v('st-text').split(',').map((s) => s.trim()).filter(Boolean) };
+  d.reconnecting = { textIncludes: v('rc-text').split(',').map((s) => s.trim()).filter(Boolean) };
   for (const row of $$('#dialog .acc-row')) d.accounts[Number(row.dataset.i)].name = $('[data-f="acc-name"]', row).value;
   for (const row of $$('#dialog .watch-row[data-i]')) {
     const w = d.watchers[Number(row.dataset.i)];
@@ -812,7 +822,7 @@ async function onAction(act, el) {
       const d = S.modal.draft;
       Object.assign(d, {
         preset: p.preset, name: p.name, short: p.short, color: p.color, url: p.url || d.url,
-        loggedOut: clone(p.loggedOut), sessionTaken: clone(p.sessionTaken), watchers: clone(p.watchers),
+        loggedOut: clone(p.loggedOut), sessionTaken: clone(p.sessionTaken), reconnecting: clone(p.reconnecting), watchers: clone(p.watchers),
         accounts: Array.from({ length: p.suggestedAccounts }, (_, i) => ({ id: '', name: `Conta ${i + 1}`, sleeping: false })),
       });
       return renderModalBody();

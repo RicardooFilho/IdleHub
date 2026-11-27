@@ -4,7 +4,7 @@ const { WebContentsView, session } = require('electron');
 const path = require('path');
 const { isUserInput, isDangerousFile, shouldAllowPopup, shouldAllowDownload } = require('./guard');
 const {
-  CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, classifyPage, checkInternet,
+  CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, reconnectingTooLong, classifyPage, checkInternet,
 } = require('./recovery');
 
 const PROBE_TIMEOUT_MS = 15000;
@@ -49,6 +49,7 @@ function probeInPage(a) {
     a.lo.url.some((p) => p && href.includes(p.toLowerCase())) ||
     a.lo.text.some((p) => p && low.includes(p.toLowerCase()));
   const sessionTaken = (a.st || []).some((p) => p && low.includes(p.toLowerCase()));
+  const reconnecting = (a.rc || []).some((p) => p && low.includes(p.toLowerCase()));
 
   const parseNum = (s) => {
     const m = String(s).match(/-?\d[\d.,\s]*\s*[kmbtKMBT]?/);
@@ -107,7 +108,7 @@ function probeInPage(a) {
   });
 
   // title e o começo do texto servem para reconhecer telas do Cloudflare e erros 52x (recovery.js).
-  return { url: location.href, blank, loggedOut, sessionTaken, watchers, title: document.title || '', head: text.slice(0, 1500), len: text.length };
+  return { url: location.href, blank, loggedOut, sessionTaken, reconnecting, watchers, title: document.title || '', head: text.slice(0, 1500), len: text.length };
 }
 
 function withTimeout(p, ms) {
@@ -181,7 +182,7 @@ class AccountManager {
           muted: undefined, visible: false, mode: 'hidden', loadStart: 0, loggedOutNotified: false,
           pausedUntil: 0, sessionTakenNotified: false,
           lastEvent: '', title: '', failures: [], gaveUp: false, retryAttempt: 0, retryTimer: null,
-          crashTimer: null, downNotified: false, challengeSince: 0, challengeNotified: false,
+          crashTimer: null, downNotified: false, challengeSince: 0, challengeNotified: false, reconnectingSince: 0,
         };
         this.rt.set(key, rt);
       }
@@ -349,6 +350,7 @@ class AccountManager {
     rt.mem = 0;
     rt.pausedUntil = 0;
     rt.sessionTakenNotified = false;
+    rt.reconnectingSince = 0;
     try {
       this.win.contentView.removeChildView(view);
     } catch {}
@@ -512,6 +514,7 @@ class AccountManager {
     rt.downNotified = false;
     rt.challengeSince = 0;
     rt.challengeNotified = false;
+    rt.reconnectingSince = 0;
     rt.pausedUntil = 0; // recarregar à mão é escolha da pessoa: tira a pausa de "aberta em outro lugar"
     rt.sessionTakenNotified = false;
   }
@@ -669,6 +672,7 @@ class AccountManager {
     const args = {
       lo: { url: g.loggedOut?.urlIncludes || [], text: g.loggedOut?.textIncludes || [] },
       st: g.sessionTaken?.textIncludes || [],
+      rc: g.reconnecting?.textIncludes || [],
       w: (g.watchers || []).filter((w) => w.enabled),
     };
     let res = null;
@@ -718,6 +722,21 @@ class AccountManager {
     // Página normal de novo: a espera e o aviso de "fora do ar" recomeçam do zero.
     rt.retryAttempt = 0;
     rt.downNotified = false;
+
+    // Vem depois da sessão tomada e dos erros do site, e antes de "em branco" e "deslogada".
+    // Não recarrega de cara: o jogo costuma reconectar sozinho. Só se passar do limite,
+    // e aí pelo autoReload, que conta a queda e respeita internet e pausa mínima.
+    if (res.reconnecting) {
+      rt.blank = 0;
+      rt.status = 'reconnecting';
+      rt.reconnectingSince ||= Date.now();
+      if (reconnectingTooLong(rt.reconnectingSince, Date.now())) {
+        rt.reconnectingSince = 0; // a nova página começa a contar do zero
+        return this.autoReload(rt, 'ficou reconectando');
+      }
+      return;
+    }
+    rt.reconnectingSince = 0;
 
     if (res.blank) {
       rt.blank++;
