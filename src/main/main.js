@@ -309,6 +309,7 @@ function registerIpc() {
       closeToTray: !!s.closeToTray,
       notifyWindows: !!s.notifyWindows,
       notifyDiscord: !!s.notifyDiscord,
+      notifyTelegram: !!s.notifyTelegram,
       startMinimized: !!s.startMinimized,
     };
     app.setLoginItemSettings({ openAtLogin: !!s.openAtLogin });
@@ -324,8 +325,8 @@ function registerIpc() {
 
   // Avisos fora do PC. O link/token nunca volta para a interface: ela só fica sabendo se está configurado.
   ipcMain.handle('remote:status', () => remote.status());
-  ipcMain.handle('remote:set', (_e, id, value) => {
-    const r = remote.set(String(id), String(value ?? ''));
+  ipcMain.handle('remote:set', async (_e, id, value) => {
+    const r = await remote.connect(String(id), String(value ?? ''));
     if (!r.ok) return r;
     // Salvou o link: já liga o canal (o interruptor fica em config.json; só o link é segredo).
     cfg.settings[remote.channelOf(String(id)).settingKey] = true;
@@ -339,7 +340,22 @@ function registerIpc() {
     saveConfig();
     return { ok: true, settings: cfg.settings, status: remote.status() };
   });
-  ipcMain.handle('remote:test', (_e, id) => remote.test(String(id)));
+  // Achou a conversa do Telegram (agora ou durante o teste): já liga o canal, como ao salvar o token.
+  const withStatus = async (id, run) => {
+    const key = String(id);
+    const before = !!remote.status().channels[key]?.detail?.chat;
+    const r = await run(key);
+    const status = remote.status();
+    const ch = remote.channelOf(key);
+    if (ch && !before && status.channels[key]?.detail?.chat) {
+      cfg.settings[ch.settingKey] = true;
+      saveConfig();
+    }
+    return { ...r, settings: cfg.settings, status };
+  };
+  ipcMain.handle('remote:test', (_e, id) => withStatus(id, (k) => remote.test(k)));
+  // Telegram: acha a conversa depois que a pessoa mandou /start para o bot.
+  ipcMain.handle('remote:find', (_e, id) => withStatus(id, (k) => remote.findChat(k)));
 
   ipcMain.handle('open:data', () => shell.openPath(app.getPath('userData')));
 }

@@ -1,11 +1,14 @@
 // Avisos fora do PC ("Avisos no celular"): o IdleHub manda os mesmos avisos do Windows para
-// canais que a pessoa liga (Discord agora; Telegram depois), sem servidor nosso.
+// canais que a pessoa liga (Discord e Telegram), sem servidor nosso.
 //
 // Três partes:
 //  1. Cofre de segredos (secrets.json): links e tokens ficam criptografados com o safeStorage
 //     do Electron (no Windows, ligado à conta do usuário) e nunca vão para o config.json.
 //  2. Canais: { id, label, settingKey, isValidSecret(valor), send(segredo, { title, body }, { fetch, signal }) }.
-//     O segredo de um canal é UMA string (se precisar de mais de um dado, junte num texto só).
+//     O segredo de um canal é UMA string (se precisar de mais de um dado, junte num texto só: o Telegram
+//     guarda um JSON { token, chatId, ... }). Ganchos opcionais: prepare(valor, ctx) (confere o que a pessoa
+//     colou e devolve o segredo a guardar), findChat(segredo, ctx), isReady(segredo) e describe(segredo)
+//     (só dados públicos para a tela, nunca o token).
 //  3. createRemote(): junta cofre + canais. sendAll() manda para todos os canais ligados, sem esperar
 //     e sem nunca derrubar o app.
 //
@@ -22,7 +25,7 @@ const MAX_RETRY_WAIT_MS = 5000;
 
 // ---------- cofre de segredos ----------
 const NO_ENCRYPTION =
-  'Este Windows não deixou o IdleHub guardar o link com segurança, então ele não foi salvo.';
+  'Este Windows não deixou o IdleHub guardar o link ou o token com segurança, então ele não foi salvo.';
 
 const defaultSafeStorage = () => require('electron').safeStorage;
 const defaultDir = () => process.env.IDLEHUB_DATA || require('electron').app.getPath('userData');
@@ -63,7 +66,7 @@ const createSecretStore = ({ getSafeStorage = defaultSafeStorage, getDir = defau
       writeAll({ ...readAll(), [name]: enc });
       return { ok: true };
     } catch {
-      return { ok: false, error: 'Não consegui salvar o link. Tente de novo.' };
+      return { ok: false, error: 'Não consegui salvar. Tente de novo.' };
     }
   };
 
@@ -145,6 +148,16 @@ const discordResult = async (res) => {
   return { ok: false, error: `O Discord não conseguiu receber o aviso (erro ${res.status}). Tente de novo mais tarde.` };
 };
 
+// Muitos avisos de uma vez: o canal manda esperar. Espera pouco e tenta uma vez só.
+const sendWithRetry = async (attempt) => {
+  let r = await attempt();
+  if (!r.ok && r.retryAfterMs !== undefined && r.retryAfterMs <= MAX_RETRY_WAIT_MS) {
+    await sleep(r.retryAfterMs);
+    r = await attempt();
+  }
+  return r.ok ? r : { ok: false, error: r.error };
+};
+
 const discord = {
   id: 'discord',
   label: 'Discord',
@@ -153,7 +166,7 @@ const discord = {
   invalidMessage: 'Esse link não parece um webhook do Discord. Copie de novo em Integrações → Webhooks → Copiar URL do webhook.',
   isValidSecret: (v) => normalizeDiscordWebhook(v) !== null,
   async send(secret, message, { fetch, signal }) {
-    const attempt = async () =>
+    return sendWithRetry(async () =>
       discordResult(
         await fetch(secret, {
           method: 'POST',
@@ -161,19 +174,166 @@ const discord = {
           body: JSON.stringify(buildDiscordPayload(message)),
           signal,
         })
-      );
-    let r = await attempt();
-    // Muitos avisos de uma vez: o Discord manda esperar. Espera pouco e tenta uma vez só.
-    if (!r.ok && r.retryAfterMs !== undefined && r.retryAfterMs <= MAX_RETRY_WAIT_MS) {
-      await sleep(r.retryAfterMs);
-      r = await attempt();
+      )
+    );
+  },
+};
+
+// ---------- canal Telegram ----------
+// A pessoa cria um bot no @BotFather e cola o token. O segredo guardado é um JSON
+// { token, botName, chatId, chatName }: a conversa é descoberta depois que ela manda /start para o bot.
+const TELEGRAM_TOKEN = /^\d+:[A-Za-z0-9_-]{30,}$/;
+const TELEGRAM_MAX_CHARS = 4096;
+const TELEGRAM_MAX_TITLE = 256;
+
+const normalizeTelegramToken = (value) => {
+  const t = String(value || '').trim();
+  return TELEGRAM_TOKEN.test(t) ? t : null;
+};
+
+// Segredo guardado -> { token, botName, chatId, chatName } ou null.
+const parseTelegramSecret = (raw) => {
+  try {
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== 'object' || !normalizeTelegramToken(o.token)) return null;
+    return {
+      token: o.token,
+      botName: typeof o.botName === 'string' ? o.botName : '',
+      chatId: Number.isSafeInteger(o.chatId) ? o.chatId : null,
+      chatName: typeof o.chatName === 'string' ? o.chatName : '',
+    };
+  } catch {
+    return null;
+  }
+};
+
+const stringifyTelegramSecret = ({ token, botName = '', chatId = null, chatName = '' }) =>
+  JSON.stringify({ token, botName, chatId, chatName });
+
+// parse_mode HTML do Telegram: só estes três símbolos precisam de escape.
+const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Corta pelo texto de verdade (o limite de 4096 vale depois de o Telegram ler o HTML, em que &amp; conta 1).
+// Cortar antes de escapar também evita deixar um "&am" pela metade.
+const cutText = (s, max) => {
+  if (s.length <= max) return s;
+  let out = s.slice(0, max - 1);
+  if (/[\uD800-\uDBFF]$/.test(out)) out = out.slice(0, -1); // não racha um emoji ao meio
+  return `${out}…`;
+};
+
+const buildTelegramPayload = (chatId, { title, body } = {}) => {
+  const head = cutText(String(title || '').trim(), TELEGRAM_MAX_TITLE);
+  const text = String(body || '').trim();
+  const room = TELEGRAM_MAX_CHARS - (head ? head.length + 1 : 0);
+  const cutBody = cutText(text, Math.max(room, 1));
+  const html = [head && `<b>${escapeHtml(head)}</b>`, escapeHtml(cutBody)].filter(Boolean).join('\n') || 'IdleHub';
+  return { chat_id: chatId, text: html, parse_mode: 'HTML', disable_web_page_preview: true };
+};
+
+const telegramName = (chat) =>
+  [chat.first_name, chat.last_name].filter(Boolean).join(' ') || (chat.username ? `@${chat.username}` : '');
+
+// Resposta do getUpdates -> { id, name } da conversa privada mais recente, ou null.
+// Quem mandou /start vale mais que qualquer outra mensagem (ninguém "entra" no bot por acaso).
+const pickChatFromUpdates = (updates) => {
+  if (!Array.isArray(updates)) return null;
+  const msgs = updates
+    .map((u) => ({ id: Number(u?.update_id) || 0, m: u?.message || u?.edited_message }))
+    .filter(({ m }) => m && m.chat && m.chat.type === 'private' && Number.isSafeInteger(m.chat.id) && m.chat.id > 0 && !m.from?.is_bot)
+    .sort((a, b) => b.id - a.id);
+  const best = msgs.find(({ m }) => /^\/start\b/.test(m.text || '')) || msgs[0];
+  return best ? { id: best.m.chat.id, name: telegramName(best.m.chat) } : null;
+};
+
+// Tira o token de qualquer texto que vá para o log (a URL da API tem o token no meio).
+const maskSecrets = (text) =>
+  String(text)
+    .replace(/\/bot\d+:[A-Za-z0-9_-]+/g, '/bot***')
+    .replace(/\b\d{6,}:[A-Za-z0-9_-]{30,}\b/g, '***')
+    .replace(/(webhooks\/\d+\/)[\w-]+/g, '$1***');
+
+const telegramApi = async (token, method, params, { fetch, signal }) => {
+  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(params || {}),
+    signal,
+  });
+  const json = await res.json().catch(() => ({}));
+  return { status: res.status, ok: res.ok && json.ok !== false, json };
+};
+
+// Resposta de erro do Telegram -> { ok: false, error, retryAfterMs? } com frase para a pessoa ler.
+const telegramError = ({ status, json }) => {
+  const code = Number(json?.error_code) || status;
+  if (code === 429) {
+    const secs = Number(json?.parameters?.retry_after);
+    return { ok: false, error: 'O Telegram pediu para ir mais devagar. Tente de novo daqui a pouco.', retryAfterMs: Number.isFinite(secs) ? secs * 1000 : undefined };
+  }
+  if (code === 401 || code === 404) return { ok: false, error: 'O Telegram não aceitou esse token. Ele pode ter sido trocado: pegue o token de novo no @BotFather.' };
+  if (code === 403) return { ok: false, error: 'O bot não pode falar com você. Abra o bot no Telegram e mande /start (se você o bloqueou, desbloqueie).' };
+  if (code === 400 && /chat not found/i.test(json?.description || '')) {
+    return { ok: false, error: 'O Telegram não achou a conversa. Abra o bot, mande /start e clique em Procurar conversa.' };
+  }
+  return { ok: false, error: `O Telegram não conseguiu receber o aviso (erro ${code}). Tente de novo mais tarde.` };
+};
+
+const botLabel = (botName) => (botName ? `@${botName}` : 'o bot');
+
+const telegram = {
+  id: 'telegram',
+  label: 'Telegram',
+  settingKey: 'notifyTelegram',
+  normalizeSecret: normalizeTelegramToken,
+  invalidMessage: 'Esse token não parece de um bot do Telegram. Ele é parecido com 123456789:AAH… (copie inteiro da conversa com o @BotFather).',
+  isValidSecret: (v) => normalizeTelegramToken(v) !== null,
+
+  // Confere o token no Telegram (getMe) e já guarda o @ do bot. Trocar o token apaga a conversa antiga.
+  async prepare(token, ctx) {
+    const r = await telegramApi(token, 'getMe', {}, ctx);
+    if (!r.ok) return telegramError(r);
+    return { ok: true, secret: stringifyTelegramSecret({ token, botName: r.json?.result?.username || '' }) };
+  },
+
+  // Procura a conversa privada mais recente com o bot (getUpdates) e devolve o segredo já com ela.
+  async findChat(secret, ctx) {
+    const s = parseTelegramSecret(secret);
+    if (!s) return { ok: false, error: 'Cole e salve o token do bot antes.' };
+    const r = await telegramApi(s.token, 'getUpdates', { limit: 100, timeout: 0, allowed_updates: ['message', 'edited_message'] }, ctx);
+    if (r.status === 409) {
+      return { ok: false, error: 'Esse bot está ligado a outro programa (webhook), então o IdleHub não consegue ler as conversas dele. Crie um bot novo no @BotFather.' };
     }
-    return r.ok ? r : { ok: false, error: r.error };
+    if (!r.ok) return telegramError(r);
+    const chat = pickChatFromUpdates(r.json?.result);
+    if (!chat) {
+      return { ok: false, error: `Não achei nenhuma conversa. Abra ${botLabel(s.botName)} no Telegram, mande /start e clique em Procurar conversa de novo.` };
+    }
+    return { ok: true, secret: stringifyTelegramSecret({ ...s, chatId: chat.id, chatName: chat.name }) };
+  },
+
+  // Só manda se já achou a conversa.
+  isReady: (secret) => parseTelegramSecret(secret)?.chatId != null,
+
+  // Dados que a tela pode mostrar (nunca o token).
+  describe(secret) {
+    const s = parseTelegramSecret(secret);
+    return s ? { bot: s.botName, chat: s.chatId != null, chatName: s.chatName } : {};
+  },
+
+  async send(secret, message, { fetch, signal }) {
+    const s = parseTelegramSecret(secret);
+    if (!s) return { ok: false, error: 'O token do Telegram salvo está inválido. Cole o token de novo.' };
+    if (s.chatId == null) return { ok: false, error: `Abra ${botLabel(s.botName)} no Telegram, mande /start e clique em Procurar conversa.` };
+    return sendWithRetry(async () => {
+      const r = await telegramApi(s.token, 'sendMessage', buildTelegramPayload(s.chatId, message), { fetch, signal });
+      return r.ok ? { ok: true } : telegramError(r);
+    });
   },
 };
 
 // ---------- canais ligados ----------
-const CHANNELS = [discord];
+const CHANNELS = [discord, telegram];
 
 const friendlyError = (err, label) =>
   err?.name === 'AbortError'
@@ -192,21 +352,24 @@ const createRemote = ({
   const secretName = (c) => c.id;
   const queues = new Map(); // id -> { chain, pending }
 
-  // Manda um aviso e nunca lança: devolve { ok } ou { ok: false, error }.
-  const deliver = async (channel, secret, message) => {
+  // Roda uma chamada de rede com tempo limite. Nunca lança: devolve { ok: false, error } se falhar.
+  const guarded = async (channel, fn) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      return await channel.send(secret, message, { fetch: getFetch(), signal: ctrl.signal });
+      return await fn({ fetch: getFetch(), signal: ctrl.signal });
     } catch (err) {
-      log(`${channel.id}: ${err?.message || err}`); // sem o link: ele é segredo
+      log(`${channel.id}: ${maskSecrets(err?.message || err)}`); // sem o link/token: são segredos
       return { ok: false, error: friendlyError(err, channel.label) };
     } finally {
       clearTimeout(timer);
     }
   };
 
-  // Um canal por vez, na ordem, para não estourar o limite de envios do Discord.
+  // Manda um aviso e nunca lança: devolve { ok } ou { ok: false, error }.
+  const deliver = (channel, secret, message) => guarded(channel, (ctx) => channel.send(secret, message, ctx));
+
+  // Um canal por vez, na ordem, para não estourar o limite de envios do canal.
   const enqueue = (channel, secret, message) => {
     const q = queues.get(channel.id) || { chain: Promise.resolve(), pending: 0 };
     queues.set(channel.id, q);
@@ -222,28 +385,60 @@ const createRemote = ({
     return {
       encryption: store.isAvailable(),
       channels: Object.fromEntries(
-        channels.map((c) => [c.id, { label: c.label, configured: store.hasSecret(secretName(c)), enabled: !!s[c.settingKey] }])
+        channels.map((c) => {
+          const secret = store.getSecret(secretName(c));
+          const info = { label: c.label, configured: secret !== null, enabled: !!s[c.settingKey] };
+          if (c.describe && secret !== null) info.detail = c.describe(secret); // só dados públicos
+          return [c.id, info];
+        })
       ),
     };
   };
 
-  // Para todos os canais ligados (e com segredo salvo). Não espera: devolve só para os testes.
+  // Para todos os canais ligados (e com segredo salvo e pronto). Não espera: devolve só para os testes.
   const sendAll = (message) => {
     const s = getSettings() || {};
     const jobs = [];
     for (const c of channels) {
       if (!s[c.settingKey]) continue;
       const secret = store.getSecret(secretName(c));
-      if (secret) jobs.push(enqueue(c, secret, message));
+      if (secret && (!c.isReady || c.isReady(secret))) jobs.push(enqueue(c, secret, message));
     }
     return Promise.all(jobs);
   };
 
-  const set = (id, value) => {
+  const validate = (id, value) => {
     const c = byId(id);
-    if (!c) return { ok: false, error: 'Canal desconhecido.' };
-    if (!c.isValidSecret(value)) return { ok: false, error: c.invalidMessage || `Isso não parece um dado válido do ${c.label}.` };
-    return store.setSecret(secretName(c), c.normalizeSecret ? c.normalizeSecret(value) : String(value).trim());
+    if (!c) return { error: 'Canal desconhecido.' };
+    if (!c.isValidSecret(value)) return { error: c.invalidMessage || `Isso não parece um dado válido do ${c.label}.` };
+    return { c, secret: c.normalizeSecret ? c.normalizeSecret(value) : String(value).trim() };
+  };
+
+  // Guarda o que a pessoa colou (sem rede). Canais que precisam conferir online usam connect().
+  const set = (id, value) => {
+    const v = validate(id, value);
+    return v.error ? { ok: false, error: v.error } : store.setSecret(secretName(v.c), v.secret);
+  };
+
+  // Igual a set(), mas deixa o canal conferir o dado online antes de guardar (ex.: token do Telegram).
+  const connect = async (id, value) => {
+    const v = validate(id, value);
+    if (v.error) return { ok: false, error: v.error };
+    if (!v.c.prepare) return store.setSecret(secretName(v.c), v.secret);
+    const r = await guarded(v.c, (ctx) => v.c.prepare(v.secret, ctx));
+    return r.ok ? store.setSecret(secretName(v.c), r.secret) : { ok: false, error: r.error };
+  };
+
+  // Canais que precisam descobrir algo depois de salvar (ex.: conversa do Telegram).
+  const findChat = async (id) => {
+    const c = byId(id);
+    if (!c?.findChat) return { ok: false, error: 'Canal desconhecido.' };
+    const secret = store.getSecret(secretName(c));
+    if (!secret) return { ok: false, error: `Cole e salve o token do ${c.label} antes.` };
+    const r = await guarded(c, (ctx) => c.findChat(secret, ctx));
+    if (!r.ok) return r;
+    const saved = store.setSecret(secretName(c), r.secret);
+    return saved.ok ? { ok: true, detail: c.describe?.(r.secret) } : saved;
   };
 
   const clear = (id) => {
@@ -252,23 +447,37 @@ const createRemote = ({
   };
 
   // Teste manual: manda mesmo com o canal desligado e espera a resposta.
+  // Se ainda não achou a conversa (Telegram), tenta achar antes de mandar.
   const test = async (id) => {
     const c = byId(id);
     if (!c) return { ok: false, error: 'Canal desconhecido.' };
-    const secret = store.getSecret(secretName(c));
-    if (!secret) return { ok: false, error: `Cole e salve o link do ${c.label} antes de testar.` };
+    let secret = store.getSecret(secretName(c));
+    if (!secret) return { ok: false, error: `Cole e salve o ${c.id === 'telegram' ? 'token' : 'link'} do ${c.label} antes de testar.` };
+    if (c.isReady && !c.isReady(secret)) {
+      const f = await findChat(id);
+      if (!f.ok) return f;
+      secret = store.getSecret(secretName(c));
+    }
     return enqueue(c, secret, { title: 'Teste do IdleHub', body: 'Deu certo! Os avisos das suas contas vão chegar aqui.' });
   };
 
-  return { status, sendAll, set, clear, test, channelOf: byId };
+  return { status, sendAll, set, connect, findChat, clear, test, channelOf: byId };
 };
 
 module.exports = {
   SECRETS_FILE,
   DISCORD_MAX_CHARS,
+  TELEGRAM_MAX_CHARS,
   normalizeDiscordWebhook,
   buildDiscordPayload,
+  normalizeTelegramToken,
+  parseTelegramSecret,
+  buildTelegramPayload,
+  pickChatFromUpdates,
+  escapeHtml,
+  maskSecrets,
   discord,
+  telegram,
   CHANNELS,
   createSecretStore,
   createRemote,
