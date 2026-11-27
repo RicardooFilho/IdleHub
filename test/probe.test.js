@@ -3,9 +3,10 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { probeInPage } = require('../src/main/accounts');
 
-function page({ text = '', href = 'https://jogo.com/', els = {}, media = false } = {}) {
+function page({ text = '', href = 'https://jogo.com/', title = '', els = {}, media = false } = {}) {
   globalThis.location = { href };
   globalThis.document = {
+    title,
     body: { innerText: text },
     querySelector: (sel) => (sel === 'canvas,img,video,iframe,svg' ? (media ? {} : null) : els[sel] ? { innerText: els[sel] } : null),
   };
@@ -61,6 +62,23 @@ test('número com regex usa o grupo', () => {
 test('número sem seletor nem regex não lê a página inteira', () => {
   page({ text: 'Ouro 10' });
   assert.equal(probe([{ id: 'x', kind: 'number', selector: '', pattern: '' }]).watchers[0].found, false);
+});
+
+test('devolve título e começo do texto para reconhecer telas de erro', () => {
+  page({ text: 'Error code 522 Connection timed out', title: 'jogo.com | 522: Connection timed out' });
+  const r = probe();
+  assert.equal(r.title, 'jogo.com | 522: Connection timed out');
+  assert.equal(r.head, 'Error code 522 Connection timed out');
+  assert.equal(r.len, 35);
+  page({ text: 'a'.repeat(5000) });
+  const big = probe();
+  assert.equal(big.head.length, 1500);
+  assert.equal(big.len, 5000);
+});
+
+test('página sem título devolve texto vazio', () => {
+  page({ text: 'oi' });
+  assert.equal(probe().title, '');
 });
 
 test('seletor que não existe na página não quebra', () => {
