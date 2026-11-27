@@ -4,6 +4,9 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 
 ## 26/11/2026
 
+### Novidades
+- Os jogos não abrem mais janelas e anúncios sozinhos: só abre o que você clicou. Downloads só com clique, e programas (`.exe` e parecidos) nunca são baixados. O login com Google continua funcionando.
+
 ### Mudanças
 - O IdleHub ganhou a mesma cara do Painel: mesmos botões, janelas, ícones, fonte Montserrat e o laranja como cor de destaque.
 - Botões, ícones e fonte vêm junto com o app: a janela funciona mesmo sem internet.
