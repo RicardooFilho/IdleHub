@@ -30,7 +30,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 
 ## Layout
 
-- **Barra lateral** à esquerda, só com ícones (76px, a mesma largura da sidebar recolhida do Painel), solta da borda como no Painel. De cima para baixo: **Painel** (ícone do IdleLive), **Todas as contas**, um botão por jogo (sigla na cor do jogo, com o selo `rodando/total`), **+** (adicionar jogo); no pé, **Atividade** (sino) e **Configurações** (engrenagem). O item aberto fica com `--brand-soft` e a faixa laranja à esquerda.
+- **Barra lateral** à esquerda, só com ícones (76px, a mesma largura da sidebar recolhida do Painel), solta da borda como no Painel. De cima para baixo: **Painel** (ícone do IdleLive), **Todas as contas**, um botão por jogo (sigla na cor do jogo, com o selo `rodando/total`), **+** (adicionar jogo); no pé, **Desempenho** (velocímetro), **Atividade** (sino) e **Configurações** (engrenagem). O item aberto fica com `--brand-soft` e a faixa laranja à esquerda.
 - **Cabeçalho** (64px): título (`h1`), selos de resumo (`wa-badge` neutro com contorno) e ações à direita.
 - **Conteúdo**: o mosaico de contas, ou o Painel ocupando tudo.
 - **Mosaico**: grade calculada em `bestCols()` para cada conta ficar o maior possível em 16:9. Cada conta é um card com topo de 36px (bolinha de status, sigla do jogo, nome, status, valores dos alertas, memória e botões) e o jogo embaixo, reduzido a partir de `tileBaseWidth`. Duplo clique no topo expande a conta.
@@ -86,6 +86,12 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 - Lista vazia, conta dormindo, jogo sem link e Painel abrindo: `<div class="empty">` com ícone, `h2`, uma frase que diz o que fazer e o botão da ação.
 - Conta: `.dot.ok` (verde brilhando), `.loading` (laranja piscando), `.unresponsive`/`.no-internet`/`.server-down`/`.challenge`/`.attention`/`.logged-out`/`.session-taken`/`.reconnecting` (amarelo), `.crashed` (vermelho), `.sleeping`/`.no-url` (cinza). Status em texto ao lado, menos quando está rodando.
 - Conta com alerta disparado: borda `warning` no card (`.alerting`).
+- Conta **pesada** (muita CPU ou memória, regra em `src/main/metrics.js`): o texto `CPU x% · memória` do topo do card ganha fundo amarelo (`.tile-mem.heavy`, tokens `warning`); a borda continua sendo só dos alertas. Na janela Desempenho a linha ganha o mesmo tom e o selo `warning` "Pesada".
+
+### Gráficos
+
+- Gráficos são SVG inline feitos à mão (sem biblioteca): `lineChart()` em `app.js`. Linha `--brand` de 2px com `vector-effect: non-scaling-stroke`, área `--brand-soft`, grade `--wa-color-surface-border` e fundo `--wa-color-surface-lowered`. Os números dos eixos ficam em HTML (`.meta num`), porque o SVG se estica. O teto do eixo é redondo (1, 2 ou 5 × 10ⁿ) para não pular a cada ponto.
+- O histórico não vai no `state` de cada 3 s: a janela Desempenho pede `metrics:history` ao abrir e a cada 5 s enquanto estiver aberta.
 
 ## Ícones
 
@@ -106,6 +112,7 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `link` | falta o link do jogo |
 | `bell` | atividade (recargas, logouts, alertas) |
 | `gear` | configurações |
+| `gauge-high` | desempenho (CPU e memória) |
 | `paper-plane` | enviar teste de aviso (Discord, Telegram) |
 | `file-import` | importar dados |
 | `gamepad` | contas dos jogos |

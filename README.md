@@ -56,6 +56,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Inicia, vigia e reinicia o IdleLive; importa dados do IdleLive avulso | `src/main/idlelive.js` |
 | Página do IdleLive dentro da janela | `src/main/panel.js` |
 | Atalhos de teclado (lidos também dentro das contas e do Painel) | `src/main/shortcuts.js` |
+| Histórico de CPU e memória (última hora) e regra de conta "pesada" | `src/main/metrics.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
 
 - **Logins:** cada conta tem sua própria pasta de cookies (`persist:acc-<jogo>-<conta>`).
@@ -71,6 +72,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
   Use **🔍 Inspecionar** numa conta expandida para achar o seletor.
 - **Atalhos:** com a janela em foco, **Ctrl+1…9** abre a conta 1 a 9, **Ctrl+Tab** / **Ctrl+Shift+Tab** passam para a próxima/anterior, **F5** recarrega a conta aberta e **Ctrl+M** silencia tudo.
   A lista também está em Configurações.
+- **Desempenho:** o botão do velocímetro na barra lateral mostra CPU e memória do app, de cada jogo e de cada conta, com gráfico da última hora (guardado só na memória, não vai para o disco). Conta pesada (perto do limite de memória ou usando quase um núcleo inteiro da CPU por 1 minuto) fica em amarelo.
 - **Memória:** contas escondidas rodam com FPS limitado (só a animação; os temporizadores do
   jogo seguem em 100%); contas dormindo não gastam nada.
 

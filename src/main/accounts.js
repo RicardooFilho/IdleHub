@@ -3,6 +3,7 @@
 const { WebContentsView, session } = require('electron');
 const path = require('path');
 const { attachShortcuts } = require('./shortcuts');
+const { normalizeCpu } = require('./metrics');
 const { isUserInput, isDangerousFile, shouldAllowPopup, shouldAllowDownload } = require('./guard');
 const {
   CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, reconnectingTooLong, classifyPage, checkInternet,
@@ -858,17 +859,25 @@ class AccountManager {
     return this.autoOptimize(rt, why);
   }
 
-  updateMetrics(metrics) {
+  // tracker (metrics.js): guarda o histórico e diz se a conta está pesada. Só números, nada caro.
+  updateMetrics(metrics, tracker) {
     const byPid = new Map(metrics.map((m) => [m.pid, m]));
     for (const rt of this.rt.values()) {
       const wc = rt.view?.webContents;
       if (!wc || wc.isDestroyed()) {
         rt.mem = 0;
+        rt.cpu = 0;
         continue;
       }
       const m = byPid.get(wc.getOSProcessId());
       rt.mem = m ? Math.round(m.memory.workingSetSize / 1024) : 0;
+      rt.cpu = m ? normalizeCpu(m.cpu?.percentUsage) : 0;
     }
+    if (!tracker) return;
+    const accounts = [...this.rt.values()].map((rt) => ({ key: rt.key, gameId: rt.key.split(':')[0], cpu: rt.cpu || 0, mem: rt.mem }));
+    tracker.ingest({ accounts, processes: metrics });
+    const limit = Number(this.getConfig().settings.memoryLimitMB) || 0;
+    for (const rt of this.rt.values()) rt.heavy = !!rt.view && tracker.heavy(rt.key, rt.mem, limit);
   }
 
   snapshot() {
@@ -878,6 +887,8 @@ class AccountManager {
         status: rt.status,
         live: !!rt.view,
         mem: rt.mem,
+        cpu: rt.cpu || 0,
+        heavy: !!rt.heavy,
         values: rt.values,
         trig: rt.trig,
         reloads: rt.reloads,

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('idle', {
   remoteClear: (id) => ipcRenderer.invoke('remote:clear', id),
   remoteTest: (id) => ipcRenderer.invoke('remote:test', id),
   remoteFind: (id) => ipcRenderer.invoke('remote:find', id),
+  metricsHistory: () => ipcRenderer.invoke('metrics:history'),
   openData: () => ipcRenderer.invoke('open:data'),
   idleliveAction: (action) => ipcRenderer.invoke('idlelive:action', action),
   idleliveImport: () => ipcRenderer.invoke('idlelive:import'),
