@@ -54,6 +54,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Testes (`node:test`) | `test/` |
 | Inicia, vigia e reinicia o IdleLive; importa dados do IdleLive avulso | `src/main/idlelive.js` |
 | Página do IdleLive dentro da janela | `src/main/panel.js` |
+| Atalhos de teclado (lidos também dentro das contas e do Painel) | `src/main/shortcuts.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
 
 - **Logins:** cada conta tem sua própria pasta de cookies (`persist:acc-<jogo>-<conta>`).
@@ -63,6 +64,8 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
   (no máximo 1 recarga por minuto por conta). Avisa quando a conta sai do login.
 - **Alertas:** "Texto" (palavra aparece na página) ou "Número" (seletor CSS e/ou regex + condição).
   Use **🔍 Inspecionar** numa conta expandida para achar o seletor.
+- **Atalhos:** com a janela em foco, **Ctrl+1…9** abre a conta 1 a 9, **Ctrl+Tab** / **Ctrl+Shift+Tab** passam para a próxima/anterior, **F5** recarrega a conta aberta e **Ctrl+M** silencia tudo.
+  A lista também está em Configurações.
 - **Memória:** contas escondidas rodam com FPS limitado (só a animação; os temporizadores do
   jogo seguem em 100%); contas dormindo não gastam nada.
 

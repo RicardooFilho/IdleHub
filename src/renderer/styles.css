@@ -167,6 +167,15 @@ body { font-family: 'Montserrat', system-ui, sans-serif; color: var(--wa-color-t
 }
 .watch-head { font-size: 12px; color: var(--wa-color-text-quiet); }
 
+/* Lista de atalhos (Configurações): teclas à esquerda, o que fazem à direita. */
+.shortcuts { display: grid; grid-template-columns: max-content 1fr; gap: var(--wa-space-xs) var(--wa-space-m); align-items: center; font-size: 13px; }
+.keys { display: flex; align-items: center; gap: var(--wa-space-2xs); }
+.keys .plus { color: var(--wa-color-text-quiet); font-size: 11px; }
+kbd {
+  font: inherit; font-size: 12px; font-weight: 600; padding: 1px var(--wa-space-xs); border-radius: 6px;
+  background: var(--wa-color-surface-lowered); border: 1px solid var(--wa-color-surface-border); border-bottom-width: 2px;
+}
+
 .log { display: flex; flex-direction: column; }
 .log-item {
   display: grid; grid-template-columns: 52px minmax(120px, 200px) 1fr; gap: var(--wa-space-s); padding: var(--wa-space-xs) 0;

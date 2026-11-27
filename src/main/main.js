@@ -7,6 +7,7 @@ const { AccountManager } = require('./accounts');
 const { IdleLive } = require('./idlelive');
 const { PanelView } = require('./panel');
 const { setupPower } = require('./power');
+const { attachShortcuts } = require('./shortcuts');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -77,6 +78,11 @@ function notify(title, body, key) {
   n.show();
 }
 
+// Atalhos de teclado: a interface decide o que fazer (ela sabe a ordem das contas e qual está aberta).
+function sendShortcut(shortcut) {
+  if (win && !win.isDestroyed()) win.webContents.send('shortcut', shortcut);
+}
+
 function emitState() {
   emitQueued = false;
   if (!win || win.isDestroyed()) return;
@@ -142,6 +148,7 @@ function createWindow() {
     },
   });
   win.removeMenu();
+  attachShortcuts(win.webContents, sendShortcut); // F5 também não deve recarregar a página da interface
   win.loadURL('idlehub://app/src/renderer/index.html');
   if (process.env.IDLEHUB_DEBUG) {
     win.webContents.on('console-message', (e) => console.log(`[ui] ${e.level}: ${e.message} (${e.sourceId}:${e.lineNumber})`));
@@ -343,9 +350,9 @@ function start() {
   migrateConfig();
   serveUi();
   createWindow();
-  mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit });
+  mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit, onShortcut: sendShortcut });
   idlelive = new IdleLive({ onChange: scheduleEmit, onReady: () => panel?.onServerReady() });
-  panel = new PanelView({ win, idlelive });
+  panel = new PanelView({ win, idlelive, onShortcut: sendShortcut });
   registerIpc();
   idlelive.start();
   mgr.sync();

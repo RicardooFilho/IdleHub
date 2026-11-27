@@ -7,6 +7,7 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 ### Novidades
 - **Reconectando preso**: se o jogo ficar com a tela de "Reconectando…" por mais de 3 minutos seguidos, o IdleHub recarrega a conta sozinho. Enquanto isso, ela aparece como **Reconectando…**, sem recarregar antes da hora. Passa pelas mesmas regras de segurança das outras recargas (sem internet não recarrega, e se a conta cair 5 vezes em 10 minutos o IdleHub desiste e avisa).
 - Os textos que indicam isso já vêm preenchidos nos jogos prontos e podem ser editados na tela do jogo, em **Textos de reconectando**.
+- **Atalhos de teclado**, valem com a janela do IdleHub em foco, até com o cursor dentro de um jogo ou do Painel: **Ctrl + 1 a 9** vai para a conta 1 a 9 da tela, **Ctrl + Tab** e **Ctrl + Shift + Tab** vão para a próxima e a anterior, **F5** recarrega a conta aberta e **Ctrl + M** deixa todas as contas sem som (ou libera o som). A lista fica em **Configurações → Atalhos de teclado**.
 
 ## 26/11/2026
 

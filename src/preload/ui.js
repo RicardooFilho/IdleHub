@@ -13,5 +13,6 @@ contextBridge.exposeInMainWorld('idle', {
   idleliveAction: (action) => ipcRenderer.invoke('idlelive:action', action),
   idleliveImport: () => ipcRenderer.invoke('idlelive:import'),
   onState: (cb) => ipcRenderer.on('state', (_e, d) => cb(d)),
+  onShortcut: (cb) => ipcRenderer.on('shortcut', (_e, s) => cb(s)),
   onFocusAccount: (cb) => ipcRenderer.on('focus-account', (_e, k) => cb(k)),
 });

@@ -677,6 +677,25 @@ function collectGame() {
 }
 
 // ----- configurações
+// Atalhos de teclado (só leitura). Quem os trata é src/main/shortcuts.js; a interface só reage (onShortcut).
+const SHORTCUTS = [
+  [['Ctrl', '1…9'], 'Ir para a conta 1 a 9 da tela (a ordem do mosaico)'],
+  [['Ctrl', 'Tab'], 'Ir para a próxima conta'],
+  [['Ctrl', 'Shift', 'Tab'], 'Ir para a conta anterior'],
+  [['F5'], 'Recarregar a conta aberta (a que está expandida ou onde você está jogando)'],
+  [['Ctrl', 'M'], 'Deixar todas as contas sem som (ou liberar o som)'],
+  [['Esc'], 'Voltar da conta expandida'],
+];
+
+function shortcutsHtml() {
+  const keys = (list) => list.map((k) => `<kbd>${esc(k)}</kbd>`).join('<span class="plus">+</span>');
+  return `<div class="form-block">
+        <span class="form-label">Atalhos de teclado</span>
+        <div class="shortcuts">${SHORTCUTS.map(([k, text]) => `<span class="keys">${keys(k)}</span><span>${esc(text)}</span>`).join('')}</div>
+        <p class="meta">Funcionam com a janela do IdleHub em foco, até dentro dos jogos e do Painel. Não funcionam com uma janela aberta.</p>
+      </div>`;
+}
+
 function settingsHtml(d) {
   const num = (f, label, hint, min, max) =>
     `<wa-input size="s" type="number" min="${min}" max="${max}" label="${esc(label)}" ${hint ? `hint="${esc(hint)}"` : ''} data-f="${f}" value="${esc(d[f])}"></wa-input>`;
@@ -706,6 +725,7 @@ function settingsHtml(d) {
         ${sw('openAtLogin', 'Abrir junto com o Windows')}
         ${sw('startMinimized', 'Começar minimizado', 'Só o ícone perto do relógio.')}
       </div>
+      ${shortcutsHtml()}
       <div class="form-block">
         <span class="form-label">Painel (IdleLive)</span>
         <p class="meta">Já usava o IdleLive avulso (iniciar.bat)? Traga as contas da Twitch e da Kick, os canais e o histórico.
@@ -892,6 +912,49 @@ function focusAccount(key) {
   render();
 }
 
+// ---------------------------------------------------------------- atalhos de teclado
+// Contas que valem para Ctrl+1…9 e Ctrl+Tab: as do jogo aberto ou, nas outras telas, todas (na ordem do mosaico).
+function shortcutAccounts() {
+  const base = S.view.kind === 'focus' ? S.view.back : S.view;
+  const gid = base?.kind === 'game' ? base.gameId : null;
+  const out = [];
+  for (const g of S.config.games) {
+    if (gid && g.id !== gid) continue;
+    for (const a of g.accounts) out.push({ g, a, key: keyOf(g, a) });
+  }
+  return out;
+}
+
+async function onShortcut(s) {
+  // Janela ou confirmação aberta: as contas estão escondidas e o jogador está no meio de outra coisa.
+  if (S.modal || S.asking || !S.config) return;
+  if (s.action === 'goto' || s.action === 'next' || s.action === 'prev') {
+    const list = shortcutAccounts();
+    if (!list.length) return;
+    let i;
+    if (s.action === 'goto') i = s.index;
+    else {
+      const cur = S.view.kind === 'focus' ? list.findIndex((x) => x.key === S.view.key) : -1;
+      i = s.action === 'next' ? cur + 1 : cur < 0 ? list.length - 1 : cur - 1;
+      i = (i + list.length) % list.length;
+    }
+    if (list[i] && !(S.view.kind === 'focus' && S.view.key === list[i].key)) focusAccount(list[i].key);
+  } else if (s.action === 'reload') {
+    // Vindo de dentro de uma conta, recarrega essa; senão, a que está expandida.
+    const key = s.from || (S.view.kind === 'focus' ? S.view.key : null);
+    const [gid, aid] = (key || '').split(':');
+    const a = gameById(gid)?.accounts.find((x) => x.id === aid);
+    if (!a || a.sleeping) return;
+    await api.accountAction(key, 'reload');
+    toast(`${a.name} recarregando…`, 'info');
+  } else if (s.action === 'mute') {
+    const st = { ...S.config.settings, openAtLogin: S.openAtLogin };
+    st.muteAll = !st.muteAll;
+    S.config = await api.saveSettings(st);
+    toast(st.muteAll ? 'Todas as contas sem som.' : 'Som liberado: só a conta expandida toca.', 'info');
+  }
+}
+
 async function refreshConfig() {
   const st = await api.getState();
   S.config = st.config;
@@ -916,6 +979,7 @@ async function init() {
     updateRuntime();
   });
   api.onFocusAccount(focusAccount);
+  api.onShortcut(onShortcut);
 
   // Um ouvinte só para todos os botões (data-action), como pede o DESIGN.md.
   document.addEventListener('click', (e) => {

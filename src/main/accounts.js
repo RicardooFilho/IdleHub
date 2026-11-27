@@ -2,6 +2,7 @@
 // sessão (cookies/login separados), mais o watchdog e os alertas.
 const { WebContentsView, session } = require('electron');
 const path = require('path');
+const { attachShortcuts } = require('./shortcuts');
 const { isUserInput, isDangerousFile, shouldAllowPopup, shouldAllowDownload } = require('./guard');
 const {
   CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, reconnectingTooLong, classifyPage, checkInternet,
@@ -122,12 +123,13 @@ function fmtNum(v) {
 }
 
 class AccountManager {
-  constructor({ win, getConfig, saveConfig, notify, onChange }) {
+  constructor({ win, getConfig, saveConfig, notify, onChange, onShortcut }) {
     this.win = win;
     this.getConfig = getConfig;
     this.saveConfig = saveConfig;
     this.notify = notify;
     this.onChange = onChange;
+    this.onShortcut = onShortcut || (() => {});
     this.rt = new Map(); // key -> runtime
     this.layout = [];
     this.logs = [];
@@ -230,6 +232,7 @@ class AccountManager {
     rt.challengeNotified = false;
 
     const wc = view.webContents;
+    attachShortcuts(wc, (s) => this.onShortcut({ ...s, from: rt.key })); // o foco dentro do jogo não chega na interface
     this.guardWindows(rt, wc, rt, webPreferences);
     this.guardDownloads(wc.session, rt.key);
     wc.on('did-start-loading', () => {
