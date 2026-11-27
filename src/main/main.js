@@ -340,6 +340,9 @@ function registerIpc() {
   ipcMain.handle('subpage:close', (_e, key, id) => mgr.closeSub(String(key), String(id)));
   ipcMain.handle('subpage:reload', (_e, key, id) => mgr.reloadSub(String(key), String(id)));
   ipcMain.handle('game:action',(_e, gameId, action) => mgr.gameAction(gameId || null, String(action)));
+  // "Escolher na tela": a resposta só chega quando a pessoa clica no jogo (ou cancela).
+  ipcMain.handle('pick:start', (_e, key) => mgr.pick(String(key)));
+  ipcMain.handle('pick:cancel', () => mgr.cancelPick('cancelled'));
 
   ipcMain.handle('config:onboard', (_e, selections) => {
     for (const sel of selections || []) {
