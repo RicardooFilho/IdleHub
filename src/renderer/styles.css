@@ -220,6 +220,20 @@ button.perf-row[aria-pressed="true"] { background: var(--brand-soft); box-shadow
 .chart-area { fill: var(--brand-soft); stroke: none; }
 .chart-x { display: flex; justify-content: space-between; padding-left: 56px; }
 .chart-empty { margin: 0; padding: var(--wa-space-m) 0; }
+/* "Enquanto você estava fora": números do resumo e lista do que aconteceu. */
+.away-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--wa-space-s); }
+.away-stat {
+  display: flex; flex-direction: column; gap: var(--wa-space-3xs); padding: var(--wa-space-s) var(--wa-space-m);
+  background: var(--wa-color-surface-lowered); border: 1px solid var(--wa-color-surface-border); border-radius: 10px;
+.away-stat > wa-icon { color: var(--brand-text); }
+.away-stat.warn > wa-icon { color: var(--wa-color-warning-on-quiet); }
+.away-num { font-size: 20px; font-weight: 600; }
+.away-list { display: flex; flex-direction: column; }
+.away-row {
+  display: grid; grid-template-columns: minmax(120px, 220px) 1fr; gap: var(--wa-space-s); padding: var(--wa-space-xs) 0;
+  border-bottom: 1px solid var(--wa-color-surface-border); font-size: 13px;
+.away-row:last-child { border-bottom: 0; }
+.away-row .who { color: var(--wa-color-text-quiet); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Resposta rápida de uma ação. Fica no topo: o resto da janela pode estar coberto pelas contas. */
 #toast {

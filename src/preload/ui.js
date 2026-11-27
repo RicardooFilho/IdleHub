@@ -15,10 +15,12 @@ contextBridge.exposeInMainWorld('idle', {
   remoteTest: (id) => ipcRenderer.invoke('remote:test', id),
   remoteFind: (id) => ipcRenderer.invoke('remote:find', id),
   metricsHistory: () => ipcRenderer.invoke('metrics:history'),
+  eventsSummary: (from, to) => ipcRenderer.invoke('events:summary', from, to),
   openData: () => ipcRenderer.invoke('open:data'),
   idleliveAction: (action) => ipcRenderer.invoke('idlelive:action', action),
   idleliveImport: () => ipcRenderer.invoke('idlelive:import'),
   onState: (cb) => ipcRenderer.on('state', (_e, d) => cb(d)),
   onShortcut: (cb) => ipcRenderer.on('shortcut', (_e, s) => cb(s)),
+  onAwaySummary: (cb) => ipcRenderer.on('away-summary', (_e, s) => cb(s)),
   onFocusAccount: (cb) => ipcRenderer.on('focus-account', (_e, k) => cb(k)),
 });

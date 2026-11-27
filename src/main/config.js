@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   notifyDiscord: false, // só o liga/desliga: o link do webhook fica criptografado em secrets.json (remote.js)
   tileBaseWidth: 1280, // largura "real" do jogo; o mosaico encolhe a partir dela
   startMinimized: false,
+  awaySummaryHours: 2, // ao voltar de uma ausência de pelo menos tantas horas, mostra o resumo do que aconteceu (0 = desligado)
 };
 
 // IDLEHUB_DATA: pasta de dados de teste (o main.js também usa) e o que os testes usam, fora do Electron.

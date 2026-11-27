@@ -17,7 +17,7 @@ function resumePlan({ sleptMs, keys }) {
 }
 
 // Liga a suspensão/retomada do PC às contas. Devolve { dispose } para os testes e o encerramento.
-function setupPower({ powerMonitor, mgr, net, now = Date.now }) {
+function setupPower({ powerMonitor, mgr, net, now = Date.now, events }) {
   let suspendedAt = null;
   let run = 0; // número da retomada atual: uma nova cancela a anterior
   let timers = [];
@@ -49,11 +49,13 @@ function setupPower({ powerMonitor, mgr, net, now = Date.now }) {
   powerMonitor.on('suspend', () => {
     cancel();
     suspendedAt = now();
+    events?.add({ type: 'suspend' });
   });
 
   powerMonitor.on('resume', () => {
     const sleptMs = suspendedAt == null ? 0 : now() - suspendedAt;
     suspendedAt = null;
+    events?.add({ type: 'resume' });
     cancel();
     const id = run;
     waitOnline(id, () => {

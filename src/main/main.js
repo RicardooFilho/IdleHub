@@ -10,6 +10,8 @@ const { setupPower } = require('./power');
 const { attachShortcuts } = require('./shortcuts');
 const { createRemote } = require('./remote');
 const { MetricsTracker } = require('./metrics');
+const { createEventLog, summarize } = require('./events');
+const { setupAway } = require('./away');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -59,6 +61,8 @@ let idlelive = null;
 let panel = null;
 let remote = null;
 const tracker = new MetricsTracker(); // histórico de CPU e memória (metrics.js)
+let events = null;
+let away = null;
 let quitting = false;
 let trayHintShown = false;
 let emitQueued = false;
@@ -87,6 +91,16 @@ function notify(title, body, key, { phone = true } = {}) {
 // Atalhos de teclado: a interface decide o que fazer (ela sabe a ordem das contas e qual está aberta).
 function sendShortcut(shortcut) {
   if (win && !win.isDestroyed()) win.webContents.send('shortcut', shortcut);
+}
+
+// Resumo do que aconteceu com as contas entre from e to (para o cartão "Enquanto você estava fora" e afins).
+function summaryFor(from, to) {
+  return summarize(events.all(), from, to, { accounts: mgr.accountStates() });
+}
+
+// A pessoa voltou depois de horas: manda o resumo para a interface (ela mostra quando a janela abrir).
+function onBack({ from, to }) {
+  if (win && !win.isDestroyed()) win.webContents.send('away-summary', summaryFor(from, to));
 }
 
 function emitState() {
@@ -317,6 +331,7 @@ function registerIpc() {
       notifyDiscord: !!s.notifyDiscord,
       notifyTelegram: !!s.notifyTelegram,
       startMinimized: !!s.startMinimized,
+      awaySummaryHours: num(s.awaySummaryHours, d.awaySummaryHours, 0, 72),
     };
     app.setLoginItemSettings({ openAtLogin: !!s.openAtLogin });
     saveConfig();
@@ -363,6 +378,13 @@ function registerIpc() {
   // Telegram: acha a conversa depois que a pessoa mandou /start para o bot.
   ipcMain.handle('remote:find', (_e, id) => withStatus(id, (k) => remote.findChat(k)));
 
+  ipcMain.handle('events:summary', (_e, from, to) => {
+    const t = Date.now();
+    const a = Number(from);
+    const b = Number(to);
+    return summaryFor(Number.isFinite(a) ? a : t - 24 * 3600 * 1000, Number.isFinite(b) ? b : t);
+  });
+
   ipcMain.handle('open:data', () => shell.openPath(app.getPath('userData')));
 }
 
@@ -397,14 +419,21 @@ function start() {
   serveUi();
   createWindow();
   remote = createRemote({ getSettings: () => cfg.settings });
-  mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit, onShortcut: sendShortcut });
+  events = createEventLog({ dir: app.getPath('userData') });
+  events.add({ type: 'app-start' });
+  mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit, onShortcut: sendShortcut, events });
   idlelive = new IdleLive({ onChange: scheduleEmit, onReady: () => panel?.onServerReady() });
   panel = new PanelView({ win, idlelive, onShortcut: sendShortcut });
   registerIpc();
   idlelive.start();
   mgr.sync();
   mgr.startWatchdog();
-  setupPower({ powerMonitor, mgr, net });
+  setupPower({ powerMonitor, mgr, net, events });
+  away = setupAway({ powerMonitor, getHours: () => cfg.settings.awaySummaryHours, onBack });
+  // Teste (com IDLEHUB_DEBUG): IDLEHUB_AWAY_DEMO=3 mostra o cartão como se a pessoa tivesse voltado após 3 h.
+  if (process.env.IDLEHUB_DEBUG && process.env.IDLEHUB_AWAY_DEMO) {
+    win.webContents.once('did-finish-load', () => setTimeout(() => onBack({ from: Date.now() - Number(process.env.IDLEHUB_AWAY_DEMO) * 3600 * 1000, to: Date.now() }), 3000));
+  }
   createTray();
   setInterval(emitState, 3000);
   checkUpdates();
@@ -417,6 +446,9 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(start);
   app.on('before-quit', () => {
     quitting = true;
+    away?.dispose();
+    events?.add({ type: 'app-stop' });
+    events?.close(); // grava o que faltava antes de fechar
     mgr?.shutdown();
     idlelive?.stop();
   });
