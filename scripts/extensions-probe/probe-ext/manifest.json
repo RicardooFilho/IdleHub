@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "IdleHub Probe",
+  "version": "0.0.1",
+  "description": "Extensão-sonda: lista quais APIs chrome.* o Electron entrega (só para teste).",
+  "permissions": ["storage", "alarms", "notifications", "scripting", "tabs", "activeTab", "cookies", "contextMenus", "webNavigation", "declarativeNetRequest", "offscreen", "sidePanel", "downloads", "idle", "unlimitedStorage"],
+  "host_permissions": ["https://pokeidle.io/*"],
+  "background": { "service_worker": "sw.js" },
+  "action": { "default_title": "Probe", "default_popup": "popup.html" },
+  "options_page": "options.html",
+  "content_scripts": [
+    { "matches": ["https://pokeidle.io/*"], "js": ["cs-iso.js"], "run_at": "document_start" },
+    { "matches": ["https://pokeidle.io/*"], "js": ["cs-main.js"], "world": "MAIN", "run_at": "document_start" }
+  ],
+  "web_accessible_resources": [{ "resources": ["war.txt"], "matches": ["https://pokeidle.io/*"] }]
+}
