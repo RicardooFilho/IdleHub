@@ -10,7 +10,7 @@ function page({ text = '', href = 'https://jogo.com/', els = {}, media = false }
     querySelector: (sel) => (sel === 'canvas,img,video,iframe,svg' ? (media ? {} : null) : els[sel] ? { innerText: els[sel] } : null),
   };
 }
-const probe = (w = [], lo = { url: [], text: [] }) => probeInPage({ lo, w });
+const probe = (w = [], lo = { url: [], text: [] }, st = []) => probeInPage({ lo, st, w });
 const num = (value, extra = {}) => ({ id: 'n', kind: 'number', selector: '#v', pattern: '', ...extra, _v: value });
 const read = (value, extra) => {
   page({ els: { '#v': value } });
@@ -36,6 +36,20 @@ test('detecta logout pelo link ou pelo texto', () => {
   assert.equal(probe([], { url: [], text: ['faça login'] }).loggedOut, true);
   page({ text: 'Bem-vindo' });
   assert.equal(probe([], { url: ['login'], text: ['entrar'] }).loggedOut, false);
+});
+
+test('detecta conta aberta em outro lugar pelo texto, sem diferenciar maiúsculas', () => {
+  const st = ['aberta em outro lugar', 'Logged In Elsewhere'];
+  page({ text: 'Sua conta foi ABERTA EM OUTRO LUGAR.' });
+  assert.equal(probe([], undefined, st).sessionTaken, true);
+  page({ text: 'You are logged in elsewhere' });
+  assert.equal(probe([], undefined, st).sessionTaken, true);
+  page({ text: 'Bem-vindo de volta! Sua sessão está ótima.' });
+  assert.equal(probe([], undefined, st).sessionTaken, false);
+  // Sem textos configurados (ou sem o campo), nunca detecta.
+  page({ text: 'aberta em outro lugar' });
+  assert.equal(probe().sessionTaken, false);
+  assert.equal(probeInPage({ lo: { url: [], text: [] }, w: [] }).sessionTaken, false);
 });
 
 test('alerta de texto ignora maiúsculas', () => {

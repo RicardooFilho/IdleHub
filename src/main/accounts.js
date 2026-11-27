@@ -6,6 +6,9 @@ const path = require('path');
 const PROBE_TIMEOUT_MS = 15000;
 const LOADING_GRACE_MS = 90000;
 const MIN_RELOAD_GAP_MS = 60000;
+// Conta aberta em outro lugar: o watchdog fica longe dela por esse tempo, para
+// não derrubar a outra sessão recarregando por cima.
+const SESSION_TAKEN_PAUSE_MS = 10 * 60 * 1000;
 
 const partitionFor = (gameId, accountId) => `persist:acc-${gameId}-${accountId}`;
 
@@ -35,6 +38,7 @@ function probeInPage(a) {
   const loggedOut =
     a.lo.url.some((p) => p && href.includes(p.toLowerCase())) ||
     a.lo.text.some((p) => p && low.includes(p.toLowerCase()));
+  const sessionTaken = (a.st || []).some((p) => p && low.includes(p.toLowerCase()));
 
   const parseNum = (s) => {
     const m = String(s).match(/-?\d[\d.,\s]*\s*[kmbtKMBT]?/);
@@ -92,7 +96,7 @@ function probeInPage(a) {
     return { id: w.id, found: v != null, value: v };
   });
 
-  return { url: location.href, blank, loggedOut, watchers };
+  return { url: location.href, blank, loggedOut, sessionTaken, watchers };
 }
 
 function withTimeout(p, ms) {
@@ -163,6 +167,7 @@ class AccountManager {
           key, view: null, status: 'sleeping', fails: 0, blank: 0, mem: 0, reloads: 0,
           lastReload: 0, values: {}, trig: {}, baseUrl: null, zoom: null, fps: undefined,
           muted: undefined, visible: false, mode: 'hidden', loadStart: 0, loggedOutNotified: false,
+          pausedUntil: 0, sessionTakenNotified: false,
           lastEvent: '', title: '',
         };
         this.rt.set(key, rt);
@@ -231,16 +236,20 @@ class AccountManager {
     wc.on('did-fail-load', (_e, code, desc, _url, isMain) => {
       if (!isMain || code === -3) return; // -3 = navegação cancelada
       rt.status = 'offline';
-      this.log(rt, `Falha ao carregar (${desc}). Tentando de novo em 20 s.`, 'warn');
+      // Conta pausada (aberta em outro lugar): só tenta de novo depois da pausa.
+      const wait = Math.max(20000, rt.pausedUntil - Date.now());
+      this.log(rt, wait > 20000 ? `Falha ao carregar (${desc}). A conta está pausada: tento de novo quando a pausa acabar.` : `Falha ao carregar (${desc}). Tentando de novo em 20 s.`, 'warn');
       clearTimeout(rt.retryTimer);
       rt.retryTimer = setTimeout(() => {
         if (rt.view && rt.status === 'offline' && rt.baseUrl) rt.view.webContents.loadURL(rt.baseUrl).catch(() => {});
-      }, 20000);
+      }, wait);
     });
     wc.on('render-process-gone', (_e, details) => {
       rt.status = 'crashed';
-      this.log(rt, `A página caiu (${details.reason}).`, 'warn');
-      setTimeout(() => this.reload(rt, 'a página tinha travado'), 3000);
+      // Conta pausada (aberta em outro lugar): só recarrega depois da pausa.
+      const wait = Math.max(3000, rt.pausedUntil - Date.now());
+      this.log(rt, wait > 3000 ? `A página caiu (${details.reason}). A conta está pausada: recarrego quando a pausa acabar.` : `A página caiu (${details.reason}).`, 'warn');
+      setTimeout(() => this.reload(rt, 'a página tinha travado'), wait);
     });
     wc.on('unresponsive', () => {
       rt.status = 'unresponsive';
@@ -268,6 +277,8 @@ class AccountManager {
     rt.view = null;
     rt.visible = false;
     rt.mem = 0;
+    rt.pausedUntil = 0;
+    rt.sessionTakenNotified = false;
     try {
       this.win.contentView.removeChildView(view);
     } catch {}
@@ -353,8 +364,12 @@ class AccountManager {
         return this.setSleeping(key, false);
       case 'reload':
         rt.lastReload = 0;
+        rt.pausedUntil = 0; // recarregar à mão é escolha da pessoa: tira a pausa
+        rt.sessionTakenNotified = false;
         return this.reload(rt, null);
       case 'home':
+        rt.pausedUntil = 0;
+        rt.sessionTakenNotified = false;
         if (rt.view && g?.url) rt.view.webContents.loadURL(g.url).catch(() => {});
         return;
       case 'devtools':
@@ -426,6 +441,9 @@ class AccountManager {
     if (wc.isDestroyed()) return;
     const s = this.getConfig().settings;
 
+    // Pausada por "aberta em outro lugar": não recarrega por nada até acabar.
+    if (rt.pausedUntil > Date.now()) return;
+
     if (rt.status === 'loading') {
       if (Date.now() - rt.loadStart < LOADING_GRACE_MS) return;
       return this.reload(rt, 'ficou carregando por tempo demais');
@@ -434,6 +452,7 @@ class AccountManager {
 
     const args = {
       lo: { url: g.loggedOut?.urlIncludes || [], text: g.loggedOut?.textIncludes || [] },
+      st: g.sessionTaken?.textIncludes || [],
       w: (g.watchers || []).filter((w) => w.enabled),
     };
     let res = null;
@@ -451,6 +470,20 @@ class AccountManager {
       return;
     }
     rt.fails = 0;
+
+    // Vem antes de "em branco" e "deslogada": a tela de aviso do jogo não é nenhuma das duas.
+    if (res.sessionTaken) {
+      rt.blank = 0;
+      rt.status = 'session-taken';
+      rt.pausedUntil = Date.now() + SESSION_TAKEN_PAUSE_MS; // texto ainda lá: renova a pausa
+      if (!rt.sessionTakenNotified) {
+        rt.sessionTakenNotified = true;
+        this.alert(rt, 'A conta foi aberta em outro lugar. Pausei o watchdog dela por 10 minutos para não derrubar a outra sessão.');
+      }
+      return;
+    }
+    rt.sessionTakenNotified = false;
+    rt.pausedUntil = 0;
 
     if (res.blank) {
       rt.blank++;

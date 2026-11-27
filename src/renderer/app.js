@@ -38,11 +38,12 @@ const STATUS = {
   unresponsive: 'Sem resposta',
   crashed: 'Travou',
   'logged-out': 'Deslogada',
+  'session-taken': 'Aberta em outro lugar',
   offline: 'Sem conexão',
   sleeping: 'Dormindo',
   'no-url': 'Sem link',
 };
-const ISSUES = new Set(['unresponsive', 'crashed', 'logged-out', 'offline']);
+const ISSUES = new Set(['unresponsive', 'crashed', 'logged-out', 'session-taken', 'offline']);
 const IDLELIVE_STATUS = {
   running: 'Rodando',
   starting: 'Abrindo…',
@@ -549,6 +550,7 @@ function blankGame() {
     id: '', preset: null, name: '', short: '', color: '#fc5e03', url: '',
     accounts: [{ id: '', name: 'Conta 1', sleeping: false }],
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
+    sessionTaken: { textIncludes: [] },
     watchers: [],
   };
 }
@@ -596,6 +598,13 @@ function gameHtml(d) {
       </div>
 
       <div class="form-block">
+        <span class="form-label">Saber quando a conta é aberta em outro lugar</span>
+        <div class="form-row">
+          <wa-input size="s" label="Textos de conta aberta em outro lugar (separados por vírgula)" hint="Ex.: aberta em outro lugar, outra aba. Quando a página mostra um deles, o IdleHub pausa a conta por 10 minutos em vez de recarregar." data-f="st-text" value="${esc((d.sessionTaken?.textIncludes || []).join(', '))}"></wa-input>
+        </div>
+      </div>
+
+      <div class="form-block">
         <span class="form-label">Alertas</span>
         <p class="meta"><b>Texto</b>: avisa quando a palavra aparece na página (ex.: <code>shiny</code>).
           <b>Número</b>: lê um valor e avisa pela condição. Para achar o valor, expanda uma conta, clique em <b>Inspecionar</b>,
@@ -639,6 +648,7 @@ function collectGame() {
     urlIncludes: v('lo-url').split(',').map((s) => s.trim()).filter(Boolean),
     textIncludes: v('lo-text').split(',').map((s) => s.trim()).filter(Boolean),
   };
+  d.sessionTaken = { textIncludes: v('st-text').split(',').map((s) => s.trim()).filter(Boolean) };
   for (const row of $$('#dialog .acc-row')) d.accounts[Number(row.dataset.i)].name = $('[data-f="acc-name"]', row).value;
   for (const row of $$('#dialog .watch-row[data-i]')) {
     const w = d.watchers[Number(row.dataset.i)];
@@ -799,7 +809,7 @@ async function onAction(act, el) {
       const d = S.modal.draft;
       Object.assign(d, {
         preset: p.preset, name: p.name, short: p.short, color: p.color, url: p.url || d.url,
-        loggedOut: clone(p.loggedOut), watchers: clone(p.watchers),
+        loggedOut: clone(p.loggedOut), sessionTaken: clone(p.sessionTaken), watchers: clone(p.watchers),
         accounts: Array.from({ length: p.suggestedAccounts }, (_, i) => ({ id: '', name: `Conta ${i + 1}`, sleeping: false })),
       });
       return renderModalBody();

@@ -4,6 +4,10 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 
 ## 26/11/2026
 
+### Novidades
+- Quando o jogo avisa que a conta foi aberta em outro lugar (outra aba, celular ou outro PC), o IdleHub não recarrega mais por cima e derruba a outra sessão: ele pausa o watchdog daquela conta por 10 minutos e avisa. A conta aparece como **Aberta em outro lugar**.
+- Os textos que indicam isso já vêm preenchidos nos jogos prontos e podem ser editados na tela do jogo, em **Textos de conta aberta em outro lugar**. Recarregar a conta à mão, ou dormir e acordar, tira a pausa.
+
 ### Mudanças
 - O IdleHub ganhou a mesma cara do Painel: mesmos botões, janelas, ícones, fonte Montserrat e o laranja como cor de destaque.
 - Botões, ícones e fonte vêm junto com o app: a janela funciona mesmo sem internet.
