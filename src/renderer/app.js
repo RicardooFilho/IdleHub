@@ -726,6 +726,7 @@ function settingsHtml(d) {
         ${sw('startMinimized', 'Começar minimizado', 'Só o ícone perto do relógio.')}
       </div>
       ${shortcutsHtml()}
+      ${remoteHtml(d)}
       <div class="form-block">
         <span class="form-label">Painel (IdleLive)</span>
         <p class="meta">Já usava o IdleLive avulso (iniciar.bat)? Traga as contas da Twitch e da Kick, os canais e o histórico.
@@ -740,6 +741,33 @@ function settingsHtml(d) {
     </div>
     <wa-button slot="footer" appearance="plain" data-dialog="close">Cancelar</wa-button>
     <wa-button slot="footer" variant="brand" data-action="settings-save">Salvar</wa-button>`;
+}
+
+// Avisos fora do PC. O link do webhook fica criptografado no app e nunca volta para esta tela:
+// aqui só se sabe se está salvo (S.remote vem do remote:status).
+function remoteHtml(d) {
+  const dc = S.remote?.channels?.discord || {};
+  const noCrypto = S.remote && !S.remote.encryption;
+  return `<div class="form-block">
+        <span class="form-label">Avisos no celular</span>
+        <p class="meta">Receba no Discord (e no celular, com o app dele) os mesmos avisos do Windows: conta que caiu, alerta que disparou, sem internet.
+          Não precisa de servidor: o IdleHub fala direto com o Discord.</p>
+        <wa-callout variant="neutral" size="small">
+          <wa-icon slot="icon" name="circle-info"></wa-icon>
+          Como pegar o link: no Discord, abra o canal e vá em <b>Configurações do canal → Integrações → Webhooks → Novo webhook</b>, depois clique em <b>Copiar URL do webhook</b> e cole abaixo.
+          Quem tem esse link pode escrever no seu canal, então não mostre para ninguém. O IdleHub guarda o link criptografado neste PC.
+        </wa-callout>
+        ${noCrypto ? `<wa-callout variant="warning" size="small"><wa-icon slot="icon" name="triangle-exclamation"></wa-icon>Este Windows não deixa o IdleHub guardar o link com segurança, então esse recurso não funciona aqui.</wa-callout>` : ''}
+        <wa-input size="s" type="password" label="Link do webhook do Discord" data-remote-input="discord" autocomplete="off"
+          placeholder="${dc.configured ? 'Link salvo (escondido). Cole outro para trocar.' : 'https://discord.com/api/webhooks/…'}"
+          hint="${dc.configured ? 'Configurado.' : 'Ainda não configurado.'}"></wa-input>
+        <div class="form-row">
+          <wa-button size="s" variant="brand" data-action="remote-save" ${noCrypto ? 'disabled' : ''}><wa-icon slot="start" name="floppy-disk"></wa-icon>Salvar link</wa-button>
+          <wa-button size="s" variant="brand" appearance="outlined" data-action="remote-test" ${dc.configured ? '' : 'disabled'}><wa-icon slot="start" name="paper-plane"></wa-icon>Enviar teste</wa-button>
+          <wa-button size="s" appearance="plain" data-action="remote-clear" ${dc.configured ? '' : 'disabled'}><wa-icon slot="start" name="trash"></wa-icon>Remover link</wa-button>
+        </div>
+        <wa-switch data-f="notifyDiscord" ${d.notifyDiscord && dc.configured ? 'checked' : ''} ${dc.configured ? '' : 'disabled'} hint="Vale também com as notificações do Windows desligadas.">Mandar os avisos para o Discord</wa-switch>
+      </div>`;
 }
 
 function collectSettings() {
@@ -819,7 +847,42 @@ async function onAction(act, el) {
     case 'edit-game':
       return openModal('game', clone(gameById(id)));
     case 'open-settings':
+      S.remote = await api.remoteStatus();
       return openModal('settings', { ...clone(S.config.settings), openAtLogin: S.openAtLogin });
+    case 'remote-save': {
+      const input = $('#dialog [data-remote-input="discord"]');
+      if (!input?.value.trim()) {
+        input?.focus();
+        return toast('Cole o link do webhook do Discord.');
+      }
+      collectSettings();
+      el.loading = true;
+      const r = await api.remoteSet('discord', input.value);
+      el.loading = false;
+      if (!r.ok) return toast(r.error);
+      S.remote = r.status;
+      S.config.settings = r.settings;
+      S.modal.draft.notifyDiscord = true;
+      renderModalBody();
+      return toast('Link salvo. Clique em Enviar teste para conferir.', 'info');
+    }
+    case 'remote-test': {
+      el.loading = true;
+      const r = await api.remoteTest('discord');
+      el.loading = false;
+      return r.ok ? toast('Teste enviado! Veja o canal no Discord.', 'info') : toast(r.error);
+    }
+    case 'remote-clear': {
+      if (!(await ask({ title: 'Remover o link do Discord?', text: 'Os avisos deixam de ir para o Discord. Para voltar, é só colar o link de novo (ou criar outro webhook).', ok: 'Remover', danger: true }))) return;
+      collectSettings();
+      const r = await api.remoteClear('discord');
+      if (!r.ok) return toast(r.error);
+      S.remote = r.status;
+      S.config.settings = r.settings;
+      S.modal.draft.notifyDiscord = false;
+      renderModalBody();
+      return toast('Link removido.', 'info');
+    }
     case 'open-log':
       S.seenLog = Date.now();
       updateRail();

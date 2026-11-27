@@ -106,6 +106,7 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `link` | falta o link do jogo |
 | `bell` | atividade (recargas, logouts, alertas) |
 | `gear` | configurações |
+| `paper-plane` | enviar teste de aviso (Discord, Telegram) |
 | `file-import` | importar dados |
 | `gamepad` | contas dos jogos |
 | `power-off` | Painel parado |

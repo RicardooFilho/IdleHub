@@ -8,6 +8,7 @@ const { IdleLive } = require('./idlelive');
 const { PanelView } = require('./panel');
 const { setupPower } = require('./power');
 const { attachShortcuts } = require('./shortcuts');
+const { createRemote } = require('./remote');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -55,6 +56,7 @@ let tray = null;
 let mgr = null;
 let idlelive = null;
 let panel = null;
+let remote = null;
 let quitting = false;
 let trayHintShown = false;
 let emitQueued = false;
@@ -68,7 +70,9 @@ function showWindow() {
   win.focus();
 }
 
-function notify(title, body, key) {
+// phone=false: avisos só do app (ex.: "continua rodando") não vão para o Discord e afins.
+function notify(title, body, key, { phone = true } = {}) {
+  if (phone) remote?.sendAll({ title, body }); // não espera e não lança; vale mesmo com notifyWindows desligado
   if (!cfg.settings.notifyWindows || !Notification.isSupported()) return;
   const n = new Notification({ title, body, icon: ICON });
   n.on('click', () => {
@@ -164,7 +168,7 @@ function createWindow() {
       win.hide();
       if (!trayHintShown) {
         trayHintShown = true;
-        notify('IdleHub continua rodando', 'As contas seguem ativas. Use o ícone perto do relógio para abrir ou sair.');
+        notify('IdleHub continua rodando', 'As contas seguem ativas. Use o ícone perto do relógio para abrir ou sair.', undefined, { phone: false });
       }
     }
   });
@@ -304,6 +308,7 @@ function registerIpc() {
       muteAll: !!s.muteAll,
       closeToTray: !!s.closeToTray,
       notifyWindows: !!s.notifyWindows,
+      notifyDiscord: !!s.notifyDiscord,
       startMinimized: !!s.startMinimized,
     };
     app.setLoginItemSettings({ openAtLogin: !!s.openAtLogin });
@@ -316,6 +321,25 @@ function registerIpc() {
     mgr.applyLayout();
     return cfg;
   });
+
+  // Avisos fora do PC. O link/token nunca volta para a interface: ela só fica sabendo se está configurado.
+  ipcMain.handle('remote:status', () => remote.status());
+  ipcMain.handle('remote:set', (_e, id, value) => {
+    const r = remote.set(String(id), String(value ?? ''));
+    if (!r.ok) return r;
+    // Salvou o link: já liga o canal (o interruptor fica em config.json; só o link é segredo).
+    cfg.settings[remote.channelOf(String(id)).settingKey] = true;
+    saveConfig();
+    return { ok: true, settings: cfg.settings, status: remote.status() };
+  });
+  ipcMain.handle('remote:clear', (_e, id) => {
+    const r = remote.clear(String(id));
+    if (!r.ok) return r;
+    cfg.settings[remote.channelOf(String(id)).settingKey] = false;
+    saveConfig();
+    return { ok: true, settings: cfg.settings, status: remote.status() };
+  });
+  ipcMain.handle('remote:test', (_e, id) => remote.test(String(id)));
 
   ipcMain.handle('open:data', () => shell.openPath(app.getPath('userData')));
 }
@@ -350,6 +374,7 @@ function start() {
   migrateConfig();
   serveUi();
   createWindow();
+  remote = createRemote({ getSettings: () => cfg.settings });
   mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit, onShortcut: sendShortcut });
   idlelive = new IdleLive({ onChange: scheduleEmit, onReady: () => panel?.onServerReady() });
   panel = new PanelView({ win, idlelive, onShortcut: sendShortcut });

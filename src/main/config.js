@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS = {
   muteAll: true, // true = tudo mudo; false = só a conta expandida toca som
   closeToTray: true,
   notifyWindows: true,
+  notifyDiscord: false, // só o liga/desliga: o link do webhook fica criptografado em secrets.json (remote.js)
   tileBaseWidth: 1280, // largura "real" do jogo; o mosaico encolhe a partir dela
   startMinimized: false,
 };
