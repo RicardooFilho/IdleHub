@@ -64,6 +64,9 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Conexão de cada conta com o servidor do jogo (conectada, sem dados, caiu) | `src/main/connection.js` |
 | Percebe a volta ao PC depois de horas fora ("Enquanto você estava fora") | `src/main/away.js` |
 | Resumo do dia: horário marcado, texto para os canais e recuperação se o PC estava dormindo | `src/main/daily.js` |
+| Extensões do Chrome por conta: instalar da loja ou de uma pasta, versão travada, ligar por conta | `src/main/extensions.js` |
+| Leitor de extensão da loja (`.crx`: assinatura, SHA-256, zip seguro, sem pacote novo) | `src/main/crx.js` |
+| Aviso de risco da extensão (permissões, sites, automação) e diferença entre versões | `src/main/extrisk.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
 
 - **Logins:** cada conta tem sua própria pasta de cookies (`persist:acc-<jogo>-<conta>`).
@@ -120,6 +123,23 @@ Os jogos prontos (PokeIdle, LoLdle, One Piece Idle e os que vierem) ficam em `ca
 ```
 
 Ao passar de `maxAccounts`, o IdleHub avisa com o `banWarning` e pede confirmação; não bloqueia. Os testes (`test/catalog.test.js`) mostram o que é aceito.
+
+## Extensões do Chrome
+
+- **Extensões** (peça de quebra-cabeça na barra lateral) → **Instalar extensão**: cole o link da Chrome Web Store (ou o ID de 32 letras) ou escolha uma pasta
+  de extensão descompactada. Antes de instalar, uma tela mostra as permissões, os sites que a extensão alcança, os sinais de automação
+  e o aviso de possível banimento. A extensão nasce **desligada**: você escolhe em quais contas ela roda (interruptor por conta;
+  a conta recarrega ao ligar ou desligar).
+- Só entram extensões **Manifest V3** que agem **só nos sites dos seus jogos** (adicione o jogo antes). Ficam de fora as que querem
+  qualquer site, os cookies, os pedidos de rede (`webRequest`), `debugger` ou programas do PC (`nativeMessaging`).
+- **Não há ícone, popup nem janela de opções** de extensão (o Electron não tem essa interface). Extensões que dependem de
+  `notifications`, `contextMenus`, `downloads`, `sidePanel`, `webNavigation` ou atalhos de extensão aparecem como "Não compatível".
+  A **/hunt for PokeIdle** é a que já foi testada (veja [docs/extensoes.md](docs/extensoes.md)).
+- **Versão travada:** nada se atualiza sozinho. **Procurar atualização** mostra o que mudou e só troca com o seu "sim"; a versão anterior
+  fica guardada (**Voltar para a versão…**). Os arquivos são conferidos pelo SHA-256 a cada vez que a conta abre.
+- Os arquivos ficam em `%APPDATA%/IdleHub/extensions/<id>/<versão>`; quais contas usam cada extensão fica no `config.json` (`extensions`).
+  Nada disso entra no git. Os dados de cada extensão (`chrome.storage`) ficam na sessão de cada conta.
+- Cada conta com extensão ganha um processo a mais de extensão (memória). Veja em **Desempenho** antes de ligar em todas as contas.
 
 ## Avisos no celular
 

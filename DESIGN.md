@@ -30,7 +30,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 
 ## Layout
 
-- **Barra lateral** à esquerda, só com ícones (76px, a mesma largura da sidebar recolhida do Painel), solta da borda como no Painel. De cima para baixo: **Painel** (ícone do IdleLive), **Todas as contas**, um botão por jogo (sigla na cor do jogo, com o selo `rodando/total`), **+** (adicionar jogo); no pé, **Grupos e perfis** (camadas), **Desempenho** (velocímetro), **Atividade** (sino) e **Configurações** (engrenagem). O item aberto fica com `--brand-soft` e a faixa laranja à esquerda.
+- **Barra lateral** à esquerda, só com ícones (76px, a mesma largura da sidebar recolhida do Painel), solta da borda como no Painel. De cima para baixo: **Painel** (ícone do IdleLive), **Todas as contas**, um botão por jogo (sigla na cor do jogo, com o selo `rodando/total`), **+** (adicionar jogo); no pé, **Grupos e perfis** (camadas), **Extensões** (peça de quebra-cabeça), **Desempenho** (velocímetro), **Atividade** (sino) e **Configurações** (engrenagem). O item aberto fica com `--brand-soft` e a faixa laranja à esquerda.
 - **Cabeçalho** (64px): título (`h1`), selos de resumo (`wa-badge` neutro com contorno) e ações à direita.
 - **Conteúdo**: o mosaico de contas, ou o Painel ocupando tudo.
 - **Mosaico**: grade calculada em `bestCols()` para cada conta ficar o maior possível em 16:9. Cada conta é um card com topo de 36px (bolinha de status, sigla do jogo, nome, status, valores dos alertas, memória e botões) e o jogo embaixo, reduzido a partir de `tileBaseWidth`. Duplo clique no topo expande a conta.
@@ -82,6 +82,13 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 - **Grupos e perfis** (`groupsHtml()`, `groupEditHtml()`): botão de camadas (`layer-group`) no pé da barra lateral, antes do Desempenho. A janela tem duas seções, **Grupos** e **Perfis**, com uma linha `.arr-row` por item (fundo `--wa-color-surface-lowered`, nome e resumo `.meta`, botão `variant="brand" appearance="outlined"` de **Trocar para este grupo** ou **Aplicar**, e `iconBtn` de editar, atualizar e apagar). A cor do grupo só aparece na bolinha `.swatch-dot` e no seletor `.swatches` (paleta curta, a mesma de `COLORS` em `src/main/groups.js`, escolhida com botões redondos `.swatch`). Editar grupo abre uma segunda janela (`S.modal.kind = 'group'`) com nome, cor e `wa-checkbox` das contas agrupadas por jogo; **Cancelar** volta para a lista. Apagar pede `ask({ danger: true })`. Trocar de grupo ou aplicar perfil não pede confirmação (é um clique só e dá para voltar atrás aplicando outro), fecha a janela e mostra um `toast` com quantas contas acordam e dormem. Contas que dormem ou acordam fora da interface (menu **Perfis** da bandeja, fila de acordar) chegam pelo `state` (`sleeping`, `rev`) e a tela se refaz sozinha, sem mexer numa janela aberta.
 - **Escolher na tela** (`startPick()`, botão com `crosshairs` no fim da linha de cada alerta): a janela de Editar jogo some (o rascunho fica guardado em `S.modal`), a conta aparece em tamanho cheio e o cabeçalho vira o aviso (`.pick-hint`: "Clique no número ou texto que você quer vigiar. Esc cancela.") com só o botão **Cancelar**; a barra lateral fica apagada e sem clique (`body.picking`). Dentro da conta, a página ganha uma camada transparente e um contorno laranja no item sob o cursor (`runPicker()` em `src/main/selector.js`): o clique nunca chega no jogo. Ao terminar, a janela volta com o seletor preenchido e uma `wa-callout` `.pick-note` embaixo da linha com o que foi lido (`success`; `warning` se o seletor depende da posição na página e pode quebrar).
 - Formulários: `wa-input` com `label` e `hint`, `wa-select`, `wa-switch` (ligar/desligar) e `wa-checkbox` (escolher itens). Grupos com `.form-block` e rótulo `.form-label`.
+
+### Extensões do Chrome
+
+- Três conteúdos da mesma janela (`#dialog`, `S.modal`, que esconde as contas): **Extensões** (`extensionsHtml()`), **Instalar extensão** (`extAddHtml()`) e **Revisar extensão** (`extRiskHtml()`). Sair de um para o outro troca o conteúdo sem fechar a janela. Fechar a revisão de qualquer jeito descarta a análise (nada fica instalado).
+- A lista tem um card por extensão (`.ext-card`): nome, versão, selo de compatibilidade (`success` Testada, `neutral` Deve funcionar, `warning` Funciona em parte, `danger` Não compatível), selo de risco (`success`, `warning`), a versão travada (primeiros 8 caracteres do hash), um `wa-switch` **por conta** (agrupadas por jogo, com a sigla na cor do jogo) e os botões **Procurar atualização** (`brand` com contorno), **Voltar para a versão…** e **Remover** (`plain`; remover pede `ask({ danger: true })`). O interruptor vale na hora e a conta recarrega.
+- O **aviso de banimento** é um `wa-callout variant="warning"` fixo, na lista e na revisão. A revisão mostra, nesta ordem: o que ela pode fazer (permissões, com selo baixo/médio/alto), sites e rede, sinais de automação, o aviso, as contas para ligar (`wa-checkbox`, nenhuma marcada) e a caixa **Entendi o risco…**, sem a qual **Instalar** (ou **Atualizar**) não segue. Na atualização entra o bloco **O que mudou** antes das permissões, com callout `warning` quando a versão nova ganha acesso. Extensão que o IdleHub recusa mostra só um callout `danger` com os motivos e o botão **Voltar**.
+- Tudo é calculado no processo principal (`src/main/extrisk.js`); a interface só desenha.
 
 ### Atalhos de teclado
 
@@ -141,6 +148,8 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `file-import` | importar dados |
 | `gamepad` | contas dos jogos |
 | `power-off` | Painel parado |
+| `puzzle-piece` | extensões do Chrome |
+| `clock-rotate-left` | voltar para a versão anterior da extensão |
 
 - O ícone do Painel na barra lateral é o pixel art do IdleLive (`icon.png`, `image-rendering: pixelated`).
 - Ícone sem texto do lado precisa de `label` (leitor de tela) e o botão em volta precisa de `title`.
