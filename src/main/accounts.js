@@ -16,6 +16,7 @@ const {
 } = require('./connection');
 const { ISSUE_TYPES } = require('./events');
 const { GAME_TAB, initialTabs, selectTab, closeTab, pruneTabs } = require('./subpages');
+const { PICK_CODE, PICK_CANCEL_CODE } = require('./selector');
 
 const PROBE_TIMEOUT_MS = 15000;
 const LOADING_GRACE_MS = 90000;
@@ -157,6 +158,7 @@ class AccountManager {
     this.nextConnReloadAt = 0; // recarga por conexão caída: uma por vez, com espaço entre elas
     this.optimizeTimers = new Set(); // fila do "Otimizar todas"
     this.wakeTimers = new Set(); // fila de contas acordando ao trocar de grupo ou perfil
+    this.picking = null; // "Escolher na tela": { key, wc, finish } da conta em que a pessoa está clicando
   }
 
   // ---------- helpers ----------
@@ -280,6 +282,7 @@ class AccountManager {
       if (details?.isMainFrame && !details.isSameDocument) this.resetConnection(rt);
     });
     wc.on('did-start-loading', () => {
+      if (this.picking?.wc === wc) this.cancelPick('reload'); // a página nova não tem mais o modo de escolha
       rt.status = 'loading';
       rt.loadStart = Date.now();
       this.onChange();
@@ -412,6 +415,7 @@ class AccountManager {
   }
 
   destroyView(rt) {
+    if (this.picking?.key === rt.key) this.cancelPick('closed');
     clearTimeout(rt.retryTimer);
     clearTimeout(rt.crashTimer);
     rt.retryTimer = rt.crashTimer = null;
@@ -532,6 +536,57 @@ class AccountManager {
   reloadSub(key, id) {
     const wc = this.rt.get(key)?.subs.get(id)?.view.webContents;
     if (wc && !wc.isDestroyed()) wc.reload();
+  }
+
+  // ---------- escolher na tela (criar alerta clicando no valor) ----------
+  // Liga o modo de escolha na página da conta e espera o clique. Resolve com
+  // { ok: true, selector, fragile, text, number } | { ok: false, cancelled?, error? }.
+  // O código roda na página só enquanto a pessoa escolhe e se remove sozinho (selector.js).
+  pick(key) {
+    const wc = this.rt.get(key)?.view?.webContents;
+    if (!wc || wc.isDestroyed()) return Promise.resolve({ ok: false, error: 'closed' });
+    this.cancelPick('replaced');
+    return new Promise((resolve) => {
+      const p = { key, wc, finish: resolve };
+      this.picking = p;
+      wc.executeJavaScript(PICK_CODE, true).then(
+        async (res) => {
+          if (this.picking !== p) return; // cancelada: quem cancelou já respondeu
+          this.picking = null;
+          if (!res || res.cancelled) return resolve({ ok: false, cancelled: true });
+          if (!res.ok || typeof res.selector !== 'string' || !res.selector) return resolve({ ok: false, error: 'no-selector' });
+          const text = String(res.text || '').slice(0, 80);
+          resolve({ ok: true, selector: res.selector.slice(0, 300), fragile: !!res.fragile, text, number: await this.readNumber(wc, res.selector) });
+        },
+        () => {
+          if (this.picking !== p) return;
+          this.picking = null;
+          resolve({ ok: false, cancelled: true });
+        }
+      );
+    });
+  }
+
+  cancelPick(reason = 'cancelled') {
+    const p = this.picking;
+    if (!p) return;
+    this.picking = null;
+    try {
+      if (!p.wc.isDestroyed()) p.wc.executeJavaScript(PICK_CANCEL_CODE, true).catch(() => {});
+    } catch {}
+    p.finish({ ok: false, cancelled: true, reason });
+  }
+
+  // O número que o alerta leria agora nesse seletor: o mesmo código do watchdog, para a prévia bater com o alerta.
+  async readNumber(wc, selector) {
+    try {
+      const args = { lo: { url: [], text: [] }, st: [], rc: [], w: [{ id: 'pick', kind: 'number', selector, pattern: '' }] };
+      const res = await withTimeout(wc.executeJavaScript(`(${probeInPage.toString()})(${JSON.stringify(args)})`, true), PROBE_TIMEOUT_MS);
+      const r = res?.watchers?.[0];
+      return r?.found && typeof r.value === 'number' ? r.value : null;
+    } catch {
+      return null;
+    }
   }
 
   // Conta removida de vez: também apaga o login salvo dela.

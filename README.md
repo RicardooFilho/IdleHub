@@ -79,7 +79,8 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
   no jogo) ou sozinho: quando a conta passa do limite de memória e/ou a cada N horas
   (**Configurações → Watchdog**), uma conta por vez.
 - **Alertas:** "Texto" (palavra aparece na página) ou "Número" (seletor CSS e/ou regex + condição).
-  Use **🔍 Inspecionar** numa conta expandida para achar o seletor.
+  Clique no alvo (**Escolher na tela**) no fim da linha do alerta e depois no valor dentro do jogo: o IdleHub preenche o seletor sozinho
+  e mostra o que leu (precisa de uma conta acordada e do jogo já salvo). Também dá para usar **🔍 Inspecionar** numa conta expandida para achar o seletor à mão.
 - **Subpáginas:** outros sites do jogo (votação, wiki, loja) abertos no **mesmo login** da conta, como abas acima do jogo. Em **Editar jogo**, clique em **Subpáginas** na conta, dê um nome e um link `https` (até 6 por conta). Cada uma só carrega quando você clica nela, o **×** da aba fecha e devolve a memória, e o jogo continua rodando por baixo. Dormir ou otimizar a conta fecha as subpáginas.
 - **Atalhos:** com a janela em foco, **Ctrl+1…9** abre a conta 1 a 9, **Ctrl+Tab** / **Ctrl+Shift+Tab** passam para a próxima/anterior, **F5** recarrega a conta aberta e **Ctrl+M** silencia tudo.
   A lista também está em Configurações.

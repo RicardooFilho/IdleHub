@@ -12,10 +12,11 @@ const S = {
   perf: null, // histórico de CPU e memória (IPC metrics:history), só carregado com a janela Desempenho aberta
   perfAt: 0,
   view: loadView(), // panel | all | game | focus
-  modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log' | 'away', draft }
+  modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log' | 'away', draft, pickInfo? }
   reopen: null, // janela de Configurações a reabrir depois de ver o resumo do dia por ela
   awayPending: null, // resumo de "Enquanto você estava fora" esperando a janela aberta fechar
   asking: false,
+  picking: null, // "Escolher na tela": { key, i, back } enquanto a pessoa clica no valor dentro de uma conta
   version: '',
   openAtLogin: false,
   seenLog: 0,
@@ -173,6 +174,7 @@ function render() {
   if (S.view.kind === 'game' && !gameById(S.view.gameId)) S.view = { kind: 'all' };
   if (S.view.kind === 'focus' && !scope().length) S.view = { kind: 'all' };
   saveView();
+  document.body.classList.toggle('picking', !!S.picking); // barra lateral e botões esperam a escolha terminar
   renderRail();
   renderTop();
   renderContent();
@@ -204,6 +206,13 @@ function renderRail() {
 
 function renderTop() {
   const v = S.view;
+  // Escolhendo na tela: o topo vira o aviso (não cobre a conta) e só deixa cancelar.
+  if (S.picking) {
+    $('#top').innerHTML = `<h1>${icon('crosshairs')}Escolher na tela</h1>
+      <span class="pick-hint">Clique no número ou texto que você quer vigiar. <kbd>Esc</kbd> cancela.</span>
+      <div class="top-actions"><wa-button size="s" appearance="outlined" data-action="pick-cancel"><wa-icon slot="start" name="xmark"></wa-icon>Cancelar</wa-button></div>`;
+    return;
+  }
   let title = 'Todas as contas';
   let actions = '';
   const btn = (action, name, text, attrs = '') =>
@@ -516,7 +525,8 @@ function scheduleLayout() {
 
 function sendLayout() {
   // Janela aberta: as contas (desenhadas por cima da página) se escondem para não cobrir a janela.
-  if (S.modal || S.asking) return api.setLayout([]);
+  // (Escolhendo na tela, a janela fica escondida e a conta escolhida aparece sozinha, em tamanho cheio.)
+  if ((S.modal && !S.picking) || S.asking) return api.setLayout([]);
   const base = S.config.settings.tileBaseWidth || 1280;
   const focus = S.view.kind === 'focus';
   const tiles = $$('[data-live]').map((el) => {
@@ -558,7 +568,7 @@ const MODAL_TITLES = {
 
 function renderModal() {
   const d = dlg();
-  if (!S.modal) {
+  if (!S.modal || S.picking) {
     d.open = false;
     scheduleLayout();
     return;
@@ -595,6 +605,7 @@ function renderModalBody() {
 
 dlg().addEventListener('wa-hide', (e) => {
   if (e.target !== e.currentTarget) return; // menus e seletores lá dentro também disparam wa-hide
+  if (S.picking) return; // escondida só enquanto a pessoa escolhe na tela: o rascunho continua aqui
   if (S.modal?.kind === 'onboard') return e.preventDefault();
   if (S.modal?.kind === 'log') S.seenLog = Date.now();
   S.modal = null;
@@ -772,9 +783,9 @@ function gameHtml(d) {
       <div class="form-block">
         <span class="form-label">Alertas</span>
         <p class="meta"><b>Texto</b>: avisa quando a palavra aparece na página (ex.: <code>shiny</code>).
-          <b>Número</b>: lê um valor e avisa pela condição. Para achar o valor, expanda uma conta, clique em <b>Inspecionar</b>,
-          clique com o botão direito no valor → <b>Copy selector</b>, e cole em Seletor CSS. Também dá para usar uma regex com um grupo,
-          ex.: <code>Ouro:\\s*([\\d.,]+[kKmM]?)</code>.</p>
+          <b>Número</b>: lê um valor e avisa pela condição. Para achar o valor, clique no alvo (${icon('crosshairs', 'Escolher na tela')}) no fim da linha
+          do alerta e depois clique no valor dentro do jogo: o IdleHub preenche o seletor sozinho (precisa de uma conta acordada e do jogo já salvo).
+          Também dá para usar uma regex com um grupo, ex.: <code>Ouro:\\s*([\\d.,]+[kKmM]?)</code>.</p>
         ${
           d.watchers.length
             ? `<div class="watch-row watch-head"><span></span><span>Nome</span><span>Tipo</span><span>Seletor CSS (opcional)</span><span>Texto ou regex</span><span>Condição</span><span>Valor</span><span></span></div>`
@@ -790,8 +801,11 @@ function gameHtml(d) {
             <wa-input size="s" data-f="w-pattern" value="${esc(w.pattern)}" placeholder="${w.kind === 'text' ? 'shiny' : 'regex (opcional)'}" aria-label="Texto ou regex"></wa-input>
             <wa-select size="s" data-f="w-op" value="${w.op}" aria-label="Condição" ${w.kind === 'text' ? 'disabled' : ''}>${OPS.map(([v, l]) => `<wa-option value="${v}">${l}</wa-option>`).join('')}</wa-select>
             <wa-input size="s" type="number" data-f="w-value" value="${esc(w.value)}" aria-label="Valor" ${w.kind === 'text' || w.op === 'change' ? 'disabled' : ''}></wa-input>
-            ${iconBtn('w-del', 'trash', 'Remover alerta', `data-i="${i}"`)}
-          </div>`
+            <div class="row-actions">
+              ${iconBtn('w-pick', 'crosshairs', 'Escolher na tela: clique no valor dentro do jogo', `data-i="${i}"`)}
+              ${iconBtn('w-del', 'trash', 'Remover alerta', `data-i="${i}"`)}
+            </div>
+          </div>${pickNoteHtml(d, i)}`
           )
           .join('')}
         <div><wa-button size="s" variant="brand" appearance="outlined" data-action="w-add"><wa-icon slot="start" name="plus"></wa-icon>Adicionar alerta</wa-button></div>
@@ -800,6 +814,52 @@ function gameHtml(d) {
     ${isNew ? '' : `<wa-button slot="footer" appearance="plain" data-action="game-delete" style="margin-right:auto"><wa-icon slot="start" name="trash"></wa-icon>Excluir jogo</wa-button>`}
     <wa-button slot="footer" appearance="plain" data-dialog="close">Cancelar</wa-button>
     <wa-button slot="footer" variant="brand" data-action="game-save">${isNew ? 'Adicionar jogo' : 'Salvar'}</wa-button>`;
+}
+
+// Depois de escolher na tela: mostra o que o IdleHub leu, para a pessoa conferir antes de salvar.
+function pickNoteHtml(d, i) {
+  const p = S.modal?.pickInfo;
+  if (!p || p.i !== i) return '';
+  const w = d.watchers[i];
+  const read = p.text ? `<b class="num">${esc(p.number != null && w.kind === 'number' ? fmt(p.number) : p.text)}</b>` : '<b>nada (vazio)</b>';
+  return `<wa-callout variant="${p.fragile ? 'warning' : 'success'}" size="small" class="pick-note"><wa-icon slot="icon" name="${p.fragile ? 'triangle-exclamation' : 'circle-check'}"></wa-icon>
+      O IdleHub leu ${read} na tela.
+      ${w.kind === 'number' ? 'Ajuste a condição e o valor para o que você quer ser avisado.' : 'O alerta avisa quando este texto aparecer. Troque pelo texto que você espera ver.'}
+      ${p.fragile ? 'Esse seletor depende da posição na página e pode parar de funcionar se o jogo mudar.' : ''}</wa-callout>`;
+}
+
+// Conta que serve para escolher na tela: a aberta na tela (se for deste jogo), senão a primeira acordada.
+function pickAccountKey(game) {
+  const live = (a) => a.id && !a.sleeping && S.runtime.accounts[`${game.id}:${a.id}`]?.live;
+  const focused = S.view.kind === 'focus' && S.view.gameId === game.id ? S.view.key.split(':')[1] : '';
+  const a = game.accounts.find((x) => x.id === focused && live(x)) || game.accounts.find(live);
+  return a ? `${game.id}:${a.id}` : '';
+}
+
+// Esconde a janela (o rascunho fica guardado), mostra só a conta em tamanho cheio e espera o clique.
+async function startPick(key, i) {
+  S.picking = { key, i, back: S.view };
+  S.view = { kind: 'focus', key, gameId: key.split(':')[0], back: S.view };
+  render();
+  const r = await api.pickStart(key);
+  const { back } = S.picking;
+  S.picking = null;
+  S.view = back;
+  const w = S.modal?.draft.watchers[i];
+  if (r.ok && w) {
+    w.selector = r.selector;
+    const asNumber = r.number != null && r.text.length <= 30; // texto longo com um número no meio é mais texto que número
+    w.kind = asNumber ? 'number' : 'text';
+    if (asNumber) {
+      w.pattern = '';
+      w.value = r.number;
+    } else w.pattern = r.text.slice(0, 40);
+    S.modal.pickInfo = { i, text: r.text, number: r.number, fragile: r.fragile };
+  }
+  render();
+  // A janela reabre no topo: leva a pessoa de volta para o alerta que ela estava editando.
+  dlg().addEventListener('wa-after-show', () => $(`#dialog .watch-row[data-i="${i}"]`)?.scrollIntoView({ block: 'center' }), { once: true });
+  if (!r.ok && !r.cancelled) toast(r.error === 'closed' ? 'A conta não está aberta. Acorde a conta e tente de novo.' : 'Não consegui montar um seletor para esse item. Clique em outro ponto, mais em cima do texto, ou use o Inspecionar.');
 }
 
 function collectGame() {
@@ -1553,7 +1613,18 @@ async function onAction(act, el) {
     case 'w-del':
       collectGame();
       S.modal.draft.watchers.splice(Number(el.dataset.i), 1);
+      S.modal.pickInfo = null; // os números das linhas mudaram
       return renderModalBody();
+    case 'w-pick': {
+      collectGame();
+      const d = S.modal.draft;
+      if (!d.id) return toast('Salve o jogo primeiro. Depois é só editar o jogo e usar Escolher na tela.');
+      const key = pickAccountKey(d);
+      if (!key) return toast('Acorde uma conta deste jogo (e salve o jogo, se acabou de criar a conta) para escolher na tela.');
+      return startPick(key, Number(el.dataset.i));
+    }
+    case 'pick-cancel':
+      return api.pickCancel();
     case 'game-save': {
       collectGame();
       const d = S.modal.draft;
@@ -1592,7 +1663,7 @@ async function onAction(act, el) {
 }
 
 function focusAccount(key) {
-  if (!key) return;
+  if (!key || S.picking) return;
   const back = S.view.kind === 'focus' ? S.view.back : S.view;
   S.view = { kind: 'focus', key, gameId: key.split(':')[0], back };
   if (S.modal) closeModal();
@@ -1724,6 +1795,7 @@ async function init() {
     if (S.modal?.kind === 'onboard' && f === 'on') e.target.closest('.pick').classList.toggle('off', !e.target.checked);
   });
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && S.picking) return api.pickCancel(); // com o foco na interface; dentro do jogo quem trata é a página
     if (e.key === 'Escape' && !S.modal && !S.asking && S.view.kind === 'focus') onAction('back', document.body);
   });
 

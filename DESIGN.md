@@ -36,7 +36,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 - **Mosaico**: grade calculada em `bestCols()` para cada conta ficar o maior possível em 16:9. Cada conta é um card com topo de 36px (bolinha de status, sigla do jogo, nome, status, valores dos alertas, memória e botões) e o jogo embaixo, reduzido a partir de `tileBaseWidth`. Duplo clique no topo expande a conta.
 - **Contas e Painel ficam por cima da página** (são desenhados pelo app, não pelo HTML). Por isso:
   - nada pode ficar por cima de `[data-live]` ou `[data-panel]`: nem menus suspensos (`wa-dropdown`), nem dicas, nem avisos. Use botões diretos;
-  - toda janela esconde as contas enquanto está aberta (`S.modal`/`S.asking`);
+  - toda janela esconde as contas enquanto está aberta (`S.modal`/`S.asking`). Exceção: **Escolher na tela** (`S.picking`), em que a janela do jogo se esconde mas a conta escolhida aparece sozinha, em tamanho cheio (visão `focus`), para a pessoa clicar nela;
   - a resposta rápida (`toast`) aparece no topo, sobre o cabeçalho.
 
 ## Componentes
@@ -74,12 +74,13 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 
 ### Janelas
 
-- Uma janela só (`#dialog`, `wa-dialog`, `light-dismiss`, largura `min(860px, 94vw)`), com o conteúdo trocado pelo `renderModalBody()`. Botões no `slot="footer"`; Cancelar e Fechar usam `data-dialog="close"`.
+- Uma janela só (`#dialog`, `wa-dialog`, `light-dismiss`, largura `min(960px, 94vw)`), com o conteúdo trocado pelo `renderModalBody()`. Botões no `slot="footer"`; Cancelar e Fechar usam `data-dialog="close"`.
 - Exceção: as **boas-vindas** não fecham clicando fora nem com Esc (sem jogo nenhum o app fica vazio).
 - Confirmação: sempre `ask({ title, text, ok, danger })`, nunca `confirm()` ou `alert()`. O título é uma pergunta curta ("Remover Conta 2?"), o texto diz o que acontece e se dá para voltar atrás, e o botão repete o verbo ("Remover", não "OK").
 - **Enquanto você estava fora** (`awayHtml()`): janela normal (`S.modal`, esconde as contas) aberta sozinha quando a pessoa volta. Se outra janela estiver aberta, espera ela fechar (`S.awayPending`). Frase com o tempo fora, quadradinhos de números (`.away-stat`: quedas resolvidas, alertas, tempo rodando, internet) e listas `.away-list` do que aconteceu e do que precisa de atenção. Tudo vem pronto do `summarize()` de `src/main/events.js`; o botão **Ver atividade** abre a lista.
 - **Resumo do dia**: o mesmo cartão do "Enquanto você estava fora" (`awayHtml()`), com `kind: 'daily'` no resumo: título **Resumo do dia** e frase "Resumo das últimas …". Abre sozinho no horário marcado (ou ao clicar na notificação do Windows). Nas Configurações, o bloco **Resumo do dia** tem o interruptor, o horário (`wa-input type="time"`) e os botões **Ver resumo agora** (abre o cartão e volta para as Configurações ao fechar, com o que já foi digitado) e **Enviar resumo agora**. O texto para Discord/Telegram sai de `formatDaily()` em `src/main/daily.js`.
 - **Grupos e perfis** (`groupsHtml()`, `groupEditHtml()`): botão de camadas (`layer-group`) no pé da barra lateral, antes do Desempenho. A janela tem duas seções, **Grupos** e **Perfis**, com uma linha `.arr-row` por item (fundo `--wa-color-surface-lowered`, nome e resumo `.meta`, botão `variant="brand" appearance="outlined"` de **Trocar para este grupo** ou **Aplicar**, e `iconBtn` de editar, atualizar e apagar). A cor do grupo só aparece na bolinha `.swatch-dot` e no seletor `.swatches` (paleta curta, a mesma de `COLORS` em `src/main/groups.js`, escolhida com botões redondos `.swatch`). Editar grupo abre uma segunda janela (`S.modal.kind = 'group'`) com nome, cor e `wa-checkbox` das contas agrupadas por jogo; **Cancelar** volta para a lista. Apagar pede `ask({ danger: true })`. Trocar de grupo ou aplicar perfil não pede confirmação (é um clique só e dá para voltar atrás aplicando outro), fecha a janela e mostra um `toast` com quantas contas acordam e dormem. Contas que dormem ou acordam fora da interface (menu **Perfis** da bandeja, fila de acordar) chegam pelo `state` (`sleeping`, `rev`) e a tela se refaz sozinha, sem mexer numa janela aberta.
+- **Escolher na tela** (`startPick()`, botão com `crosshairs` no fim da linha de cada alerta): a janela de Editar jogo some (o rascunho fica guardado em `S.modal`), a conta aparece em tamanho cheio e o cabeçalho vira o aviso (`.pick-hint`: "Clique no número ou texto que você quer vigiar. Esc cancela.") com só o botão **Cancelar**; a barra lateral fica apagada e sem clique (`body.picking`). Dentro da conta, a página ganha uma camada transparente e um contorno laranja no item sob o cursor (`runPicker()` em `src/main/selector.js`): o clique nunca chega no jogo. Ao terminar, a janela volta com o seletor preenchido e uma `wa-callout` `.pick-note` embaixo da linha com o que foi lido (`success`; `warning` se o seletor depende da posição na página e pode quebrar).
 - Formulários: `wa-input` com `label` e `hint`, `wa-select`, `wa-switch` (ligar/desligar) e `wa-checkbox` (escolher itens). Grupos com `.form-block` e rótulo `.form-label`.
 
 ### Atalhos de teclado
@@ -120,6 +121,7 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `sun` | acordar |
 | `house` | voltar ao link inicial do jogo |
 | `magnifying-glass` | inspecionar a página (achar seletor de alerta); procurar a conversa do bot (Telegram) |
+| `crosshairs` | escolher na tela: clicar no valor dentro do jogo para criar o alerta |
 | `pen` | editar jogo |
 | `trash` | remover |
 | `link` | falta o link do jogo |

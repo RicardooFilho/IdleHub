@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('idle', {
   subpageClose: (key, id) => ipcRenderer.invoke('subpage:close', key, id),
   subpageReload: (key, id) => ipcRenderer.invoke('subpage:reload', key, id),
   gameAction:(gameId, action) => ipcRenderer.invoke('game:action', gameId, action),
+  pickStart: (key) => ipcRenderer.invoke('pick:start', key),
+  pickCancel: () => ipcRenderer.invoke('pick:cancel'),
   onboard: (selections) => ipcRenderer.invoke('config:onboard', selections),
   saveGame: (game) => ipcRenderer.invoke('game:save', game),
   deleteGame: (id) => ipcRenderer.invoke('game:delete', id),
