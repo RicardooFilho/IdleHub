@@ -199,6 +199,24 @@ kbd {
 .log-item.alert .msg { color: var(--wa-color-warning-on-quiet); }
 .log-item.warn .msg { color: var(--error-text); }
 
+/* Janela Grupos e perfis: uma linha por grupo ou perfil; a cor do grupo só aparece na bolinha e no seletor. */
+.arr-row {
+  display: flex; align-items: center; gap: var(--wa-space-s); padding: var(--wa-space-xs) var(--wa-space-s);
+  border-radius: 10px; background: var(--wa-color-surface-lowered); border: 1px solid var(--wa-color-surface-border);
+}
+.arr-name { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 600; }
+.swatch-dot { width: 14px; height: 14px; border-radius: 50%; flex: none; } /* tamanho da bolinha de cor */
+.swatches { display: flex; gap: var(--wa-space-xs); flex-wrap: wrap; }
+.swatch {
+  width: 28px; height: 28px; border-radius: 50%; padding: 0; cursor: pointer; /* tamanho do botão de cor */
+  border: 2px solid transparent; box-shadow: 0 0 0 1px var(--wa-color-surface-border);
+}
+.swatch.on { border-color: var(--wa-color-surface-default); box-shadow: 0 0 0 2px var(--wa-color-text-normal); }
+.swatch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.member-game { display: flex; flex-direction: column; gap: var(--wa-space-xs); }
+.member-game .pick-name { align-self: flex-start; }
+.members { display: flex; flex-wrap: wrap; gap: var(--wa-space-xs) var(--wa-space-l); }
+
 /* Janela Desempenho: tabela (app, jogos, contas) e gráficos da última hora. */
 .perf-table { display: flex; flex-direction: column; }
 .perf-row {

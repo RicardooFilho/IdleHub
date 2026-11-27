@@ -30,7 +30,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 
 ## Layout
 
-- **Barra lateral** à esquerda, só com ícones (76px, a mesma largura da sidebar recolhida do Painel), solta da borda como no Painel. De cima para baixo: **Painel** (ícone do IdleLive), **Todas as contas**, um botão por jogo (sigla na cor do jogo, com o selo `rodando/total`), **+** (adicionar jogo); no pé, **Desempenho** (velocímetro), **Atividade** (sino) e **Configurações** (engrenagem). O item aberto fica com `--brand-soft` e a faixa laranja à esquerda.
+- **Barra lateral** à esquerda, só com ícones (76px, a mesma largura da sidebar recolhida do Painel), solta da borda como no Painel. De cima para baixo: **Painel** (ícone do IdleLive), **Todas as contas**, um botão por jogo (sigla na cor do jogo, com o selo `rodando/total`), **+** (adicionar jogo); no pé, **Grupos e perfis** (camadas), **Desempenho** (velocímetro), **Atividade** (sino) e **Configurações** (engrenagem). O item aberto fica com `--brand-soft` e a faixa laranja à esquerda.
 - **Cabeçalho** (64px): título (`h1`), selos de resumo (`wa-badge` neutro com contorno) e ações à direita.
 - **Conteúdo**: o mosaico de contas, ou o Painel ocupando tudo.
 - **Mosaico**: grade calculada em `bestCols()` para cada conta ficar o maior possível em 16:9. Cada conta é um card com topo de 36px (bolinha de status, sigla do jogo, nome, status, valores dos alertas, memória e botões) e o jogo embaixo, reduzido a partir de `tileBaseWidth`. Duplo clique no topo expande a conta.
@@ -79,6 +79,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 - Confirmação: sempre `ask({ title, text, ok, danger })`, nunca `confirm()` ou `alert()`. O título é uma pergunta curta ("Remover Conta 2?"), o texto diz o que acontece e se dá para voltar atrás, e o botão repete o verbo ("Remover", não "OK").
 - **Enquanto você estava fora** (`awayHtml()`): janela normal (`S.modal`, esconde as contas) aberta sozinha quando a pessoa volta. Se outra janela estiver aberta, espera ela fechar (`S.awayPending`). Frase com o tempo fora, quadradinhos de números (`.away-stat`: quedas resolvidas, alertas, tempo rodando, internet) e listas `.away-list` do que aconteceu e do que precisa de atenção. Tudo vem pronto do `summarize()` de `src/main/events.js`; o botão **Ver atividade** abre a lista.
 - **Resumo do dia**: o mesmo cartão do "Enquanto você estava fora" (`awayHtml()`), com `kind: 'daily'` no resumo: título **Resumo do dia** e frase "Resumo das últimas …". Abre sozinho no horário marcado (ou ao clicar na notificação do Windows). Nas Configurações, o bloco **Resumo do dia** tem o interruptor, o horário (`wa-input type="time"`) e os botões **Ver resumo agora** (abre o cartão e volta para as Configurações ao fechar, com o que já foi digitado) e **Enviar resumo agora**. O texto para Discord/Telegram sai de `formatDaily()` em `src/main/daily.js`.
+- **Grupos e perfis** (`groupsHtml()`, `groupEditHtml()`): botão de camadas (`layer-group`) no pé da barra lateral, antes do Desempenho. A janela tem duas seções, **Grupos** e **Perfis**, com uma linha `.arr-row` por item (fundo `--wa-color-surface-lowered`, nome e resumo `.meta`, botão `variant="brand" appearance="outlined"` de **Trocar para este grupo** ou **Aplicar**, e `iconBtn` de editar, atualizar e apagar). A cor do grupo só aparece na bolinha `.swatch-dot` e no seletor `.swatches` (paleta curta, a mesma de `COLORS` em `src/main/groups.js`, escolhida com botões redondos `.swatch`). Editar grupo abre uma segunda janela (`S.modal.kind = 'group'`) com nome, cor e `wa-checkbox` das contas agrupadas por jogo; **Cancelar** volta para a lista. Apagar pede `ask({ danger: true })`. Trocar de grupo ou aplicar perfil não pede confirmação (é um clique só e dá para voltar atrás aplicando outro), fecha a janela e mostra um `toast` com quantas contas acordam e dormem. Contas que dormem ou acordam fora da interface (menu **Perfis** da bandeja, fila de acordar) chegam pelo `state` (`sleeping`, `rev`) e a tela se refaz sozinha, sem mexer numa janela aberta.
 - Formulários: `wa-input` com `label` e `hint`, `wa-select`, `wa-switch` (ligar/desligar) e `wa-checkbox` (escolher itens). Grupos com `.form-block` e rótulo `.form-label`.
 
 ### Atalhos de teclado
@@ -118,6 +119,10 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `link` | falta o link do jogo |
 | `bell` | atividade (recargas, logouts, alertas) |
 | `gear` | configurações |
+| `layer-group` | grupos e perfis de arrumação |
+| `repeat` | trocar para este grupo |
+| `bookmark` | perfil salvo |
+| `floppy-disk` | salvar ou atualizar o perfil com a arrumação de agora |
 | `gauge-high` | desempenho (CPU e memória) |
 | `hourglass-half` | tempo que as contas ficaram rodando (resumo de quem estava fora) |
 | `wifi` | tempo sem internet (resumo de quem estava fora) |

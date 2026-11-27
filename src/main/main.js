@@ -14,6 +14,7 @@ const { MetricsTracker } = require('./metrics');
 const { createEventLog, summarize } = require('./events');
 const { setupAway } = require('./away');
 const daily = require('./daily');
+const groups = require('./groups');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -81,6 +82,7 @@ let catalog = null; // lista de jogos prontos (do app + baixada da internet)
 let quitting = false;
 let trayHintShown = false;
 let emitQueued = false;
+let rev = 0; // sobe quando a config muda por fora da interface (bandeja): ela vê e busca de novo
 
 const saveConfig = () => config.save(cfg);
 
@@ -143,7 +145,7 @@ function emitState() {
   mgr.updateMetrics(metrics, tracker);
   const totalMem = Math.round(metrics.reduce((s, m) => s + (m.memory?.workingSetSize || 0), 0) / 1024);
   const snap = mgr.snapshot();
-  win.webContents.send('state', { runtime: snap, totalMem, totalCpu: tracker.latest.app.cpu, idlelive: idlelive.snapshot() });
+  win.webContents.send('state', { runtime: snap, sleeping: mgr.sleepingKeys(), rev, totalMem, totalCpu: tracker.latest.app.cpu, idlelive: idlelive.snapshot() });
   updateTrayMenu();
   if (process.env.IDLEHUB_DEBUG) {
     const line = Object.entries(snap.accounts).map(([k, a]) => `${k.split(':')[1]}=${a.status}/${a.mem}MB`).join(' ');
@@ -165,20 +167,47 @@ function updateTrayMenu() {
   tray.setToolTip(`IdleHub — ${running}/${all.length} contas rodando`);
 }
 
-function createTray() {
-  const img = nativeImage.createFromPath(ICON_ICO);
-  tray = new Tray(img);
+// Troca de grupo ou perfil (interface e bandeja): dorme o que sobra e acorda o resto em fila (accounts.js).
+function applyPlan(plan) {
+  if (plan.error) return { ok: false, error: plan.error };
+  if (plan.settings) {
+    Object.assign(cfg.settings, plan.settings);
+    for (const rt of mgr.rt.values()) rt.muted = undefined; // o som é refeito no applyLayout
+  }
+  mgr.applyArrangement(plan, plan.name);
+  mgr.applyLayout();
+  rev++;
+  return { ok: true, name: plan.name, wake: plan.wake.length, sleep: plan.sleep.length };
+}
+
+// Menu da bandeja. Refeito quando os perfis mudam (o submenu Perfis lista os salvos).
+function buildTrayMenu() {
+  if (!tray) return;
+  const profiles = cfg.profiles.map((p) => ({
+    label: p.name,
+    click: () => {
+      const r = applyPlan(groups.planProfile(cfg, p.id));
+      notify(r.ok ? `Perfil ${r.name}` : 'Perfil não aplicado', r.ok ? `${r.wake} acordando e ${r.sleep} dormindo.` : r.error, undefined, { phone: false });
+    },
+  }));
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Abrir painel', click: showWindow },
       { type: 'separator' },
+      { label: 'Perfis', submenu: profiles.length ? profiles : [{ label: 'Nenhum perfil salvo', enabled: false }] },
       { label: 'Acordar todas as contas', click: () => mgr.gameAction(null, 'wake-all') },
       { label: 'Dormir todas as contas', click: () => mgr.gameAction(null, 'sleep-all') },
       { type: 'separator' },
       { label: 'Sair', click: () => { quitting = true; app.quit(); } },
     ])
   );
+}
+
+function createTray() {
+  const img = nativeImage.createFromPath(ICON_ICO);
+  tray = new Tray(img);
   tray.on('click', showWindow);
+  buildTrayMenu();
   updateTrayMenu();
 }
 
@@ -244,6 +273,8 @@ function registerIpc() {
     version: app.getVersion(),
     dataPath: app.getPath('userData'),
     openAtLogin: getOpenAtLogin(),
+    rev,
+    groupColors: groups.COLORS,
     idlelive: idlelive.snapshot(),
   }));
 
@@ -334,7 +365,9 @@ function registerIpc() {
     } else {
       cfg.games.push(game);
     }
+    groups.normalize(cfg); // conta removida sai dos grupos e dos perfis
     saveConfig();
+    buildTrayMenu();
     mgr.sync();
     return cfg;
   });
@@ -343,7 +376,9 @@ function registerIpc() {
     const g = cfg.games.find((x) => x.id === id);
     if (!g) return cfg;
     cfg.games = cfg.games.filter((x) => x.id !== id);
+    groups.normalize(cfg);
     saveConfig();
+    buildTrayMenu();
     mgr.sync();
     g.accounts.forEach((a) => mgr.forget(g.id, a.id));
     return cfg;
@@ -442,6 +477,31 @@ function registerIpc() {
     return bad ? { ok: false, error: bad.error || 'Não consegui enviar.' } : { ok: true };
   });
 
+  // Grupos e perfis. kind: 'group' | 'profile'. Perfil novo guarda a arrumação de agora (contas acordadas, tamanho-base e som).
+  ipcMain.handle('arrangement:save', (_e, kind, raw) => {
+    const known = new Set(groups.accountKeys(cfg));
+    const [list, max, item] =
+      kind === 'group' ? [cfg.groups, groups.MAX_GROUPS, groups.sanitizeGroup(raw, known)] : [cfg.profiles, groups.MAX_PROFILES, groups.snapshotProfile(cfg, raw?.name, raw?.id)];
+    const i = list.findIndex((x) => x.id === item.id);
+    if (i < 0 && list.length >= max) return { ok: false, error: `Chegou no limite de ${max}. Apague algum para criar outro.` };
+    if (i >= 0) list[i] = item;
+    else list.push(item);
+    saveConfig();
+    buildTrayMenu();
+    return { ok: true, config: cfg };
+  });
+  ipcMain.handle('arrangement:delete', (_e, kind, id) => {
+    const key = kind === 'group' ? 'groups' : 'profiles';
+    cfg[key] = cfg[key].filter((x) => x.id !== id);
+    saveConfig();
+    buildTrayMenu();
+    return { ok: true, config: cfg };
+  });
+  ipcMain.handle('arrangement:apply', (_e, kind, id) => {
+    const r = applyPlan(kind === 'group' ? groups.planGroup(cfg, id) : groups.planProfile(cfg, id));
+    return { ...r, config: cfg };
+  });
+
   ipcMain.handle('open:data', () => shell.openPath(app.getPath('userData')));
 }
 
@@ -499,6 +559,7 @@ function start() {
   catalog.load();
   migrateConfig();
   syncCatalog();
+  if (groups.normalize(cfg)) saveConfig();
   fixLoginItem();
   serveUi();
   createWindow();

@@ -59,6 +59,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Atalhos de teclado (lidos também dentro das contas e do Painel) | `src/main/shortcuts.js` |
 | Histórico de CPU e memória (última hora) e regra de conta "pesada" | `src/main/metrics.js` |
 | Registro de eventos das contas (`%APPDATA%/IdleHub/events.jsonl`) e resumo de um período | `src/main/events.js` |
+| Grupos de contas e perfis de arrumação (quem acordar e dormir, limpeza de contas apagadas) | `src/main/groups.js` |
 | Percebe a volta ao PC depois de horas fora ("Enquanto você estava fora") | `src/main/away.js` |
 | Resumo do dia: horário marcado, texto para os canais e recuperação se o PC estava dormindo | `src/main/daily.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
@@ -76,6 +77,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
   Use **🔍 Inspecionar** numa conta expandida para achar o seletor.
 - **Atalhos:** com a janela em foco, **Ctrl+1…9** abre a conta 1 a 9, **Ctrl+Tab** / **Ctrl+Shift+Tab** passam para a próxima/anterior, **F5** recarrega a conta aberta e **Ctrl+M** silencia tudo.
   A lista também está em Configurações.
+- **Grupos e perfis:** o botão das camadas na barra lateral. Um **grupo** junta contas de qualquer jogo (com nome e cor): **Trocar para este grupo** acorda elas e põe todas as outras para dormir. Um **perfil** guarda a arrumação de agora (contas acordadas, tamanho do jogo no mosaico e som) e volta a ela com **Aplicar**, ou pelo menu **Perfis** do ícone perto do relógio. As contas acordam uma por vez (3 s entre elas). Ficam no `config.json` (`groups` e `profiles`), só neste PC.
 - **Desempenho:** o botão do velocímetro na barra lateral mostra CPU e memória do app, de cada jogo e de cada conta, com gráfico da última hora (guardado só na memória, não vai para o disco). Conta pesada (perto do limite de memória ou usando quase um núcleo inteiro da CPU por 1 minuto) fica em amarelo.
 - **Enquanto você estava fora:** se você ficar parado (ou o PC dormir) por 2 horas ou mais, ao voltar o IdleHub mostra um cartão com
   as quedas (e quantas foram resolvidas), os alertas que dispararam, quanto tempo as contas rodaram, a internet que caiu e as contas que
