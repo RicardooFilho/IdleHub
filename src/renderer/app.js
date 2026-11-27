@@ -333,6 +333,19 @@ function tileHtml({ g, a, key }) {
     body = `<div class="tile-body"><div class="empty">${icon('link')}<h2>Falta o link do ${esc(g.name)}</h2>
       <wa-button size="s" variant="brand" data-action="edit-game" data-id="${g.id}"><wa-icon slot="start" name="plus"></wa-icon>Adicionar link</wa-button></div></div>`;
 
+  const subs = mode === 'live' ? a.subpages || [] : [];
+  // Abas: o jogo e as subpáginas da conta. O estado (qual aparece, quais estão abertas) vem do runtime em refreshTiles().
+  const tabs = subs.length
+    ? `<div class="sub-tabs" role="tablist" aria-label="Páginas da conta">
+      <span class="sub-tab" data-tab="game"><button class="sub-tab-btn" role="tab" data-action="sub-tab" data-id="game">${icon('gamepad')}Jogo</button></span>
+      ${subs
+        .map(
+          (sp) => `<span class="sub-tab" data-tab="${esc(sp.id)}"><button class="sub-tab-btn" role="tab" data-action="sub-tab" data-id="${esc(sp.id)}" title="${esc(sp.url)}">${esc(sp.title)}</button><button class="sub-close" data-action="sub-close" data-id="${esc(sp.id)}" title="Fechar ${esc(sp.title)} (libera memória)">${icon('xmark', 'Fechar ' + sp.title)}</button></span>`
+        )
+        .join('')}
+    </div>`
+    : '';
+
   return `<div class="tile" data-key="${key}" data-mode="${mode}">
     <div class="tile-head" title="Clique duas vezes para expandir">
       <span class="dot" data-dot></span>
@@ -352,6 +365,7 @@ function tileHtml({ g, a, key }) {
       </div>`
       }
     </div>
+    ${tabs}
     ${body}
   </div>`;
 }
@@ -405,6 +419,13 @@ function refreshTiles() {
     const valsEl = $('[data-vals]', el);
     if (valsEl._html !== vals) valsEl.innerHTML = valsEl._html = vals;
     el.classList.toggle('alerting', Object.values(r.trig || {}).some(Boolean));
+    for (const tab of $$('.sub-tab', el)) {
+      const id = tab.dataset.tab;
+      const active = id === (r.tab || 'game');
+      tab.classList.toggle('active', active);
+      tab.classList.toggle('open', id === 'game' || !!r.openTabs?.includes(id));
+      $('.sub-tab-btn', tab).setAttribute('aria-selected', String(active));
+    }
   }
   return needRender;
 }
@@ -630,7 +651,64 @@ function blankGame() {
   };
 }
 
+const MAX_SUBPAGES = 6; // igual ao de src/main/subpages.js (quem valida de verdade é o processo principal)
+
+// Confere o link de uma subpágina antes de salvar: só https. Devolve o endereço completo ou null.
+function subpageUrl(raw) {
+  let u = String(raw || '').trim();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = 'https://' + u;
+  try {
+    const x = new URL(u);
+    return x.protocol === 'https:' && x.hostname && !x.username && !x.password ? x.href : null;
+  } catch {
+    return null;
+  }
+}
+
+// Tira as linhas vazias e confere os links. Devolve o texto do erro, ou '' se está tudo certo.
+function checkSubpages(d) {
+  for (const a of d.accounts) {
+    a.subpages = (a.subpages || []).filter((sp) => sp.title.trim() || sp.url.trim());
+    for (const sp of a.subpages) {
+      const url = subpageUrl(sp.url);
+      if (!url) return `O link da subpágina "${sp.title.trim() || sp.url.trim()}" (${a.name}) não serve. Use um link que comece com https://.`;
+      sp.url = url;
+    }
+  }
+  return '';
+}
+
 const OPS = [['>=', '≥'], ['<=', '≤'], ['>', '>'], ['<', '<'], ['=', '='], ['change', 'mudou']];
+
+// Uma conta na janela do jogo: nome, botão das subpáginas (abre a lista) e remover.
+function accountRowHtml(a, i, total) {
+  const subs = a.subpages || [];
+  const rows = subs
+    .map(
+      (sp, j) => `<div class="sub-row" data-i="${i}" data-s="${j}">
+        <wa-input size="s" data-f="sub-title" value="${esc(sp.title)}" maxlength="20" placeholder="Votar" aria-label="Nome da aba"></wa-input>
+        <wa-input size="s" data-f="sub-url" value="${esc(sp.url)}" placeholder="https://…" aria-label="Link da subpágina"></wa-input>
+        ${iconBtn('sub-del', 'trash', 'Remover subpágina', `data-i="${i}" data-s="${j}"`)}</div>`
+    )
+    .join('');
+  const edit = a.subOpen
+    ? `<div class="sub-edit">
+        <p class="meta">Outros sites do jogo (votação, wiki, loja) que abrem como abas dessa conta, no mesmo login. Só links https. Cada um só carrega quando você clica nele.</p>
+        ${rows}
+        <div class="sub-edit-actions">
+          ${subs.length < MAX_SUBPAGES ? `<wa-button size="s" variant="brand" appearance="outlined" data-action="sub-add" data-i="${i}"><wa-icon slot="start" name="plus"></wa-icon>Adicionar subpágina</wa-button>` : `<span class="meta">Máximo de ${MAX_SUBPAGES} subpáginas.</span>`}
+          ${subs.length && total > 1 ? `<wa-button size="s" appearance="plain" data-action="sub-copy" data-i="${i}"><wa-icon slot="start" name="clone"></wa-icon>Copiar para as outras contas</wa-button>` : ''}
+        </div>
+      </div>`
+    : '';
+  return `<div class="acc-block">
+    <div class="acc-row" data-i="${i}">
+      <wa-input size="s" data-f="acc-name" value="${esc(a.name)}" aria-label="Nome da conta"></wa-input>
+      <wa-button size="s" appearance="plain" data-action="sub-toggle" data-i="${i}" aria-expanded="${!!a.subOpen}" title="Outros sites do jogo, no mesmo login desta conta"><wa-icon slot="start" name="globe"></wa-icon>Subpáginas${subs.length ? ` (${subs.length})` : ''}</wa-button>
+      ${iconBtn('acc-del', 'trash', 'Remover conta', `data-i="${i}"`)}</div>
+    ${edit}
+  </div>`;
+}
 
 function gameHtml(d) {
   const isNew = !d.id;
@@ -655,13 +733,7 @@ function gameHtml(d) {
       <div class="form-block">
         <span class="form-label">Contas (${d.accounts.length}/${presetOf(d)?.maxAccounts ? `${presetOf(d).maxAccounts} recomendadas` : 12})</span>
         ${presetOf(d)?.banWarning ? `<wa-callout variant="warning" size="s"><wa-icon slot="icon" name="triangle-exclamation"></wa-icon>${esc(presetOf(d).banWarning)}</wa-callout>` : ''}
-        ${d.accounts
-          .map(
-            (a, i) => `<div class="acc-row" data-i="${i}">
-            <wa-input size="s" data-f="acc-name" value="${esc(a.name)}" aria-label="Nome da conta"></wa-input>
-            ${iconBtn('acc-del', 'trash', 'Remover conta', `data-i="${i}"`)}</div>`
-          )
-          .join('')}
+        ${d.accounts.map((a, i) => accountRowHtml(a, i, d.accounts.length)).join('')}
         ${d.accounts.length < 12 ? `<div><wa-button size="s" variant="brand" appearance="outlined" data-action="acc-add"><wa-icon slot="start" name="plus"></wa-icon>Adicionar conta</wa-button></div>` : ''}
       </div>
 
@@ -734,6 +806,11 @@ function collectGame() {
   d.sessionTaken = { textIncludes: v('st-text').split(',').map((s) => s.trim()).filter(Boolean) };
   d.reconnecting = { textIncludes: v('rc-text').split(',').map((s) => s.trim()).filter(Boolean) };
   for (const row of $$('#dialog .acc-row')) d.accounts[Number(row.dataset.i)].name = $('[data-f="acc-name"]', row).value;
+  for (const row of $$('#dialog .sub-row')) {
+    const sp = d.accounts[Number(row.dataset.i)].subpages[Number(row.dataset.s)];
+    sp.title = $('[data-f="sub-title"]', row).value;
+    sp.url = $('[data-f="sub-url"]', row).value;
+  }
   for (const row of $$('#dialog .watch-row[data-i]')) {
     const w = d.watchers[Number(row.dataset.i)];
     const f = (n) => $(`[data-f="${n}"]`, row);
@@ -1410,8 +1487,44 @@ async function onAction(act, el) {
     case 'acc-add':
       collectGame();
       if (!(await askOverLimit(S.modal.draft.name || 'este jogo', presetOf(S.modal.draft), S.modal.draft.accounts.length + 1))) return;
-      S.modal.draft.accounts.push({ id: '', name: `Conta ${S.modal.draft.accounts.length + 1}`, sleeping: false });
+      S.modal.draft.accounts.push({ id: '', name: `Conta ${S.modal.draft.accounts.length + 1}`, sleeping: false, subpages: [] });
       return renderModalBody();
+    case 'sub-toggle': {
+      collectGame();
+      const a = S.modal.draft.accounts[Number(el.dataset.i)];
+      a.subOpen = !a.subOpen;
+      return renderModalBody();
+    }
+    case 'sub-add': {
+      collectGame();
+      const a = S.modal.draft.accounts[Number(el.dataset.i)];
+      a.subpages ||= [];
+      if (a.subpages.length < MAX_SUBPAGES) a.subpages.push({ id: '', title: '', url: '' });
+      return renderModalBody();
+    }
+    case 'sub-del':
+      collectGame();
+      S.modal.draft.accounts[Number(el.dataset.i)].subpages.splice(Number(el.dataset.s), 1);
+      return renderModalBody();
+    case 'sub-copy': {
+      collectGame();
+      const d = S.modal.draft;
+      if (!(await ask({ title: 'Copiar para as outras contas?', text: 'As subpáginas das outras contas deste jogo são trocadas por estas. Vale quando você salvar o jogo.', ok: 'Copiar' }))) return;
+      const from = d.accounts[Number(el.dataset.i)];
+      for (const a of d.accounts) if (a !== from) a.subpages = from.subpages.map((sp) => ({ id: '', title: sp.title, url: sp.url }));
+      return renderModalBody();
+    }
+    // Abas da conta: o jogo ou uma subpágina. O processo principal cria a subpágina na primeira vez.
+    case 'sub-tab':
+    case 'sub-close': {
+      const r = await (act === 'sub-tab' ? api.subpageSelect(key, id) : api.subpageClose(key, id));
+      const acc = S.runtime.accounts[key];
+      if (r && acc) {
+        Object.assign(acc, r);
+        refreshTiles();
+      }
+      return;
+    }
     case 'acc-del': {
       collectGame();
       const d = S.modal.draft;
@@ -1438,6 +1551,8 @@ async function onAction(act, el) {
         input?.focus();
         return toast('Dê um nome para o jogo.');
       }
+      const subError = checkSubpages(d);
+      if (subError) return toast(subError);
       const isNew = !d.id;
       el.loading = true;
       S.config = await api.saveGame(d);
@@ -1506,6 +1621,12 @@ async function onShortcut(s) {
     const [gid, aid] = (key || '').split(':');
     const a = gameById(gid)?.accounts.find((x) => x.id === aid);
     if (!a || a.sleeping) return;
+    // Com uma subpágina na frente, F5 recarrega ela e não o jogo.
+    const tab = S.runtime.accounts[key]?.tab;
+    if (tab && tab !== 'game') {
+      await api.subpageReload(key, tab);
+      return toast(`Página de ${a.name} recarregando…`, 'info');
+    }
     await api.accountAction(key, 'reload');
     toast(`${a.name} recarregando…`, 'info');
   } else if (s.action === 'mute') {
