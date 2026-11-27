@@ -54,6 +54,17 @@ function serveUi() {
   });
 }
 
+// Abrir com o Windows: em dev (npm start) o exe é o electron.exe genérico, e sem a pasta do app
+// ele abriria a tela vazia do Electron no lugar do IdleHub. Empacotado, o exe já é o app.
+const loginItem = () => (app.isPackaged ? {} : { path: process.execPath, args: [path.resolve(APP_ROOT)] });
+const getOpenAtLogin = () => app.getLoginItemSettings(loginItem()).openAtLogin;
+const setOpenAtLogin = (on) => app.setLoginItemSettings({ openAtLogin: !!on, ...loginItem() });
+
+// Versões antigas gravaram em dev só o electron.exe (sem a pasta): troca pela entrada certa.
+function fixLoginItem() {
+  if (!app.isPackaged && app.getLoginItemSettings().openAtLogin && !getOpenAtLogin()) setOpenAtLogin(true);
+}
+
 let cfg;
 let win = null;
 let tray = null;
@@ -230,7 +241,7 @@ function registerIpc() {
     runtime: mgr.snapshot(),
     version: app.getVersion(),
     dataPath: app.getPath('userData'),
-    openAtLogin: app.getLoginItemSettings().openAtLogin,
+    openAtLogin: getOpenAtLogin(),
     idlelive: idlelive.snapshot(),
   }));
 
@@ -284,7 +295,7 @@ function registerIpc() {
       });
       if (off.response === 0) {
         require('fs').rmSync(link, { force: true });
-        app.setLoginItemSettings({ openAtLogin: true });
+        setOpenAtLogin(true);
         result.autostartMoved = true;
       }
     }
@@ -358,7 +369,7 @@ function registerIpc() {
     };
     // Ligou, ou mudou o horário: o primeiro resumo é o do próximo horário (nada de mandar o de ontem agora).
     if (cfg.settings.dailySummary && (!prev.dailySummary || cfg.settings.dailySummaryTime !== prev.dailySummaryTime)) cfg.lastDailySummaryAt = Date.now();
-    app.setLoginItemSettings({ openAtLogin: !!s.openAtLogin });
+    setOpenAtLogin(s.openAtLogin);
     saveConfig();
     mgr.startWatchdog();
     for (const rt of mgr.rt.values()) {
@@ -454,6 +465,7 @@ function migrateConfig() {
 function start() {
   cfg = config.load();
   migrateConfig();
+  fixLoginItem();
   serveUi();
   createWindow();
   remote = createRemote({ getSettings: () => cfg.settings });
