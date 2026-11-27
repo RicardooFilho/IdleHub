@@ -9,7 +9,8 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 - Os textos que indicam isso já vêm preenchidos nos jogos prontos e podem ser editados na tela do jogo, em **Textos de reconectando**.
 - **Atalhos de teclado**, valem com a janela do IdleHub em foco, até com o cursor dentro de um jogo ou do Painel: **Ctrl + 1 a 9** vai para a conta 1 a 9 da tela, **Ctrl + Tab** e **Ctrl + Shift + Tab** vão para a próxima e a anterior, **F5** recarrega a conta aberta e **Ctrl + M** deixa todas as contas sem som (ou libera o som). A lista fica em **Configurações → Atalhos de teclado**.
 - **Avisos no celular (Discord)**: cole o link de um webhook do Discord em **Configurações → Avisos no celular** e o IdleHub manda para o canal os mesmos avisos do Windows (conta que caiu, alerta disparado, sem internet…). Tem o botão **Enviar teste** para conferir. Não usa servidor nosso: o IdleHub fala direto com o Discord. O interruptor vale mesmo com as notificações do Windows desligadas.
-- O link do webhook fica criptografado neste PC (arquivo `secrets.json`, protegido pelo Windows) e nunca aparece de novo na tela nem no `config.json`.
+- **Avisos no celular (Telegram)**: crie um bot no **@BotFather** (`/newbot`), cole o token em **Configurações → Avisos no celular → Telegram**, abra o seu bot e mande `/start`. O IdleHub descobre a conversa sozinho (botão **Procurar conversa**) e manda os mesmos avisos do Windows, com o título em negrito. Tem o botão **Enviar teste**. Sem servidor nosso, e o interruptor vale mesmo com as notificações do Windows desligadas.
+- O link do webhook e o token do bot do Telegram ficam criptografados neste PC (arquivo `secrets.json`, protegido pelo Windows) e nunca aparecem de novo na tela, no `config.json` nem nos registros.
 
 ## 26/11/2026
 

@@ -100,7 +100,7 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `moon` | dormir (conta parada, sem gastar memória) |
 | `sun` | acordar |
 | `house` | voltar ao link inicial do jogo |
-| `magnifying-glass` | inspecionar a página (achar seletor de alerta) |
+| `magnifying-glass` | inspecionar a página (achar seletor de alerta); procurar a conversa do bot (Telegram) |
 | `pen` | editar jogo |
 | `trash` | remover |
 | `link` | falta o link do jogo |

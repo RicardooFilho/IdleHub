@@ -743,15 +743,19 @@ function settingsHtml(d) {
     <wa-button slot="footer" variant="brand" data-action="settings-save">Salvar</wa-button>`;
 }
 
-// Avisos fora do PC. O link do webhook fica criptografado no app e nunca volta para esta tela:
+// Avisos fora do PC. O link do webhook e o token do bot ficam criptografados no app e nunca voltam para esta tela:
 // aqui só se sabe se está salvo (S.remote vem do remote:status).
 function remoteHtml(d) {
+  return discordHtml(d) + telegramHtml(d);
+}
+
+function discordHtml(d) {
   const dc = S.remote?.channels?.discord || {};
   const noCrypto = S.remote && !S.remote.encryption;
   return `<div class="form-block">
         <span class="form-label">Avisos no celular</span>
-        <p class="meta">Receba no Discord (e no celular, com o app dele) os mesmos avisos do Windows: conta que caiu, alerta que disparou, sem internet.
-          Não precisa de servidor: o IdleHub fala direto com o Discord.</p>
+        <p class="meta">Receba no celular os mesmos avisos do Windows: conta que caiu, alerta que disparou, sem internet. Escolha o Discord ou o Telegram (ou os dois).
+          Não precisa de servidor: o IdleHub fala direto com eles. Aqui é o <b>Discord</b>.</p>
         <wa-callout variant="neutral" size="small">
           <wa-icon slot="icon" name="circle-info"></wa-icon>
           Como pegar o link: no Discord, abra o canal e vá em <b>Configurações do canal → Integrações → Webhooks → Novo webhook</b>, depois clique em <b>Copiar URL do webhook</b> e cole abaixo.
@@ -762,11 +766,44 @@ function remoteHtml(d) {
           placeholder="${dc.configured ? 'Link salvo (escondido). Cole outro para trocar.' : 'https://discord.com/api/webhooks/…'}"
           hint="${dc.configured ? 'Configurado.' : 'Ainda não configurado.'}"></wa-input>
         <div class="form-row">
-          <wa-button size="s" variant="brand" data-action="remote-save" ${noCrypto ? 'disabled' : ''}><wa-icon slot="start" name="floppy-disk"></wa-icon>Salvar link</wa-button>
-          <wa-button size="s" variant="brand" appearance="outlined" data-action="remote-test" ${dc.configured ? '' : 'disabled'}><wa-icon slot="start" name="paper-plane"></wa-icon>Enviar teste</wa-button>
-          <wa-button size="s" appearance="plain" data-action="remote-clear" ${dc.configured ? '' : 'disabled'}><wa-icon slot="start" name="trash"></wa-icon>Remover link</wa-button>
+          <wa-button size="s" variant="brand" data-action="remote-save" data-channel="discord" ${noCrypto ? 'disabled' : ''}><wa-icon slot="start" name="floppy-disk"></wa-icon>Salvar link</wa-button>
+          <wa-button size="s" variant="brand" appearance="outlined" data-action="remote-test" data-channel="discord" ${dc.configured ? '' : 'disabled'}><wa-icon slot="start" name="paper-plane"></wa-icon>Enviar teste</wa-button>
+          <wa-button size="s" appearance="plain" data-action="remote-clear" data-channel="discord" ${dc.configured ? '' : 'disabled'}><wa-icon slot="start" name="trash"></wa-icon>Remover link</wa-button>
         </div>
         <wa-switch data-f="notifyDiscord" ${d.notifyDiscord && dc.configured ? 'checked' : ''} ${dc.configured ? '' : 'disabled'} hint="Vale também com as notificações do Windows desligadas.">Mandar os avisos para o Discord</wa-switch>
+      </div>`;
+}
+
+function telegramHtml(d) {
+  const tg = S.remote?.channels?.telegram || {};
+  const noCrypto = S.remote && !S.remote.encryption;
+  const bot = tg.detail?.bot ? `@${esc(tg.detail.bot)}` : 'o bot';
+  const hint = !tg.configured
+    ? 'Ainda não configurado.'
+    : tg.detail?.chat
+      ? `Conectado a ${bot}${tg.detail.chatName ? ` (conversa com ${esc(tg.detail.chatName)})` : ''}.`
+      : `Token salvo (${bot}). Falta achar a conversa: abra o bot no Telegram, mande /start e clique em Procurar conversa.`;
+  return `<div class="form-block">
+        <span class="form-label">Avisos no Telegram</span>
+        <p class="meta">Os mesmos avisos numa conversa sua com um bot do Telegram, que só você usa.</p>
+        <wa-callout variant="neutral" size="small">
+          <wa-icon slot="icon" name="circle-info"></wa-icon>
+          <b>1.</b> No Telegram, abra o <b>@BotFather</b>, mande <b>/newbot</b> e escolha um nome para o bot.
+          <b>2.</b> Copie o <b>token</b> que ele mostrar, cole abaixo e clique em <b>Salvar token</b>.
+          <b>3.</b> Abra o seu bot no Telegram, mande <b>/start</b> e clique em <b>Procurar conversa</b>.
+          Quem tem o token controla o bot, então não mostre para ninguém. O IdleHub guarda o token criptografado neste PC.
+        </wa-callout>
+        ${noCrypto ? `<wa-callout variant="warning" size="small"><wa-icon slot="icon" name="triangle-exclamation"></wa-icon>Este Windows não deixa o IdleHub guardar o token com segurança, então esse recurso não funciona aqui.</wa-callout>` : ''}
+        <wa-input size="s" type="password" label="Token do bot do Telegram" data-remote-input="telegram" autocomplete="off"
+          placeholder="${tg.configured ? 'Token salvo (escondido). Cole outro para trocar.' : '123456789:AAH…'}"
+          hint="${hint}"></wa-input>
+        <div class="form-row">
+          <wa-button size="s" variant="brand" data-action="remote-save" data-channel="telegram" ${noCrypto ? 'disabled' : ''}><wa-icon slot="start" name="floppy-disk"></wa-icon>Salvar token</wa-button>
+          <wa-button size="s" variant="brand" appearance="outlined" data-action="remote-find" ${tg.configured ? '' : 'disabled'}><wa-icon slot="start" name="magnifying-glass"></wa-icon>Procurar conversa</wa-button>
+          <wa-button size="s" variant="brand" appearance="outlined" data-action="remote-test" data-channel="telegram" ${tg.configured ? '' : 'disabled'}><wa-icon slot="start" name="paper-plane"></wa-icon>Enviar teste</wa-button>
+          <wa-button size="s" appearance="plain" data-action="remote-clear" data-channel="telegram" ${tg.configured ? '' : 'disabled'}><wa-icon slot="start" name="trash"></wa-icon>Remover token</wa-button>
+        </div>
+        <wa-switch data-f="notifyTelegram" ${d.notifyTelegram && tg.detail?.chat ? 'checked' : ''} ${tg.detail?.chat ? '' : 'disabled'} hint="Vale também com as notificações do Windows desligadas.">Mandar os avisos para o Telegram</wa-switch>
       </div>`;
 }
 
@@ -850,38 +887,68 @@ async function onAction(act, el) {
       S.remote = await api.remoteStatus();
       return openModal('settings', { ...clone(S.config.settings), openAtLogin: S.openAtLogin });
     case 'remote-save': {
-      const input = $('#dialog [data-remote-input="discord"]');
+      const tg = el.dataset.channel === 'telegram';
+      const ch = tg ? 'telegram' : 'discord';
+      const input = $(`#dialog [data-remote-input="${ch}"]`);
       if (!input?.value.trim()) {
         input?.focus();
-        return toast('Cole o link do webhook do Discord.');
+        return toast(tg ? 'Cole o token do bot do Telegram.' : 'Cole o link do webhook do Discord.');
       }
       collectSettings();
       el.loading = true;
-      const r = await api.remoteSet('discord', input.value);
+      const r = await api.remoteSet(ch, input.value);
       el.loading = false;
       if (!r.ok) return toast(r.error);
       S.remote = r.status;
       S.config.settings = r.settings;
-      S.modal.draft.notifyDiscord = true;
+      S.modal.draft[tg ? 'notifyTelegram' : 'notifyDiscord'] = true;
       renderModalBody();
-      return toast('Link salvo. Clique em Enviar teste para conferir.', 'info');
+      return toast(tg ? 'Token salvo. Agora abra o bot no Telegram, mande /start e clique em Procurar conversa.' : 'Link salvo. Clique em Enviar teste para conferir.', 'info');
+    }
+    case 'remote-find': {
+      collectSettings();
+      el.loading = true;
+      const r = await api.remoteFind('telegram');
+      el.loading = false;
+      if (!r.ok) return toast(r.error);
+      S.remote = r.status;
+      S.config.settings = r.settings;
+      S.modal.draft.notifyTelegram = !!r.settings.notifyTelegram;
+      renderModalBody();
+      return toast('Conversa encontrada! Clique em Enviar teste para conferir.', 'info');
     }
     case 'remote-test': {
+      const tg = el.dataset.channel === 'telegram';
+      collectSettings();
       el.loading = true;
-      const r = await api.remoteTest('discord');
+      const r = await api.remoteTest(tg ? 'telegram' : 'discord');
       el.loading = false;
-      return r.ok ? toast('Teste enviado! Veja o canal no Discord.', 'info') : toast(r.error);
+      if (tg && r.status) {
+        S.remote = r.status; // o teste pode ter achado a conversa sozinho
+        S.config.settings = r.settings;
+        S.modal.draft.notifyTelegram = !!r.settings.notifyTelegram;
+        renderModalBody();
+      }
+      return r.ok ? toast(`Teste enviado! Veja ${tg ? 'a conversa com o bot no Telegram' : 'o canal no Discord'}.`, 'info') : toast(r.error);
     }
     case 'remote-clear': {
-      if (!(await ask({ title: 'Remover o link do Discord?', text: 'Os avisos deixam de ir para o Discord. Para voltar, é só colar o link de novo (ou criar outro webhook).', ok: 'Remover', danger: true }))) return;
+      const tg = el.dataset.channel === 'telegram';
+      if (!(await ask({
+        title: tg ? 'Remover o token do Telegram?' : 'Remover o link do Discord?',
+        text: tg
+          ? 'Os avisos deixam de ir para o Telegram. Para voltar, é só colar o token de novo (ou criar outro bot no @BotFather).'
+          : 'Os avisos deixam de ir para o Discord. Para voltar, é só colar o link de novo (ou criar outro webhook).',
+        ok: 'Remover',
+        danger: true,
+      }))) return;
       collectSettings();
-      const r = await api.remoteClear('discord');
+      const r = await api.remoteClear(tg ? 'telegram' : 'discord');
       if (!r.ok) return toast(r.error);
       S.remote = r.status;
       S.config.settings = r.settings;
-      S.modal.draft.notifyDiscord = false;
+      S.modal.draft[tg ? 'notifyTelegram' : 'notifyDiscord'] = false;
       renderModalBody();
-      return toast('Link removido.', 'info');
+      return toast(tg ? 'Token removido.' : 'Link removido.', 'info');
     }
     case 'open-log':
       S.seenLog = Date.now();
