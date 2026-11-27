@@ -19,6 +19,8 @@ const S = {
   version: '',
   openAtLogin: false,
   seenLog: 0,
+  rev: 0, // sobe quando a config muda por fora da interface (bandeja)
+  groupColors: [], // paleta dos grupos (vem de src/main/groups.js)
   idlelive: { status: 'stopped', logs: [] },
 };
 
@@ -182,6 +184,7 @@ function renderRail() {
   }
   h += `<button class="rail-btn add" data-action="add-game" title="Adicionar jogo">${icon('plus', 'Adicionar jogo')}</button>
     <div class="rail-spacer"></div>
+    <button class="rail-btn" data-action="open-groups" title="Grupos e perfis: trocar de grupo de contas ou de arrumação">${icon('layer-group', 'Grupos e perfis')}</button>
     <button class="rail-btn" data-action="open-perf" title="Desempenho: CPU e memória de cada conta">${icon('gauge-high', 'Desempenho')}</button>
     <button class="rail-btn" data-action="open-log" title="Atividade: recargas, logouts e alertas">${icon('bell', 'Atividade')}<wa-badge class="count" variant="danger" pill data-log-count hidden></wa-badge></button>
     <button class="rail-btn" data-action="open-settings" title="Configurações">${icon('gear', 'Configurações')}</button>`;
@@ -518,6 +521,7 @@ const MODAL_TITLES = {
   settings: 'Configurações',
   log: 'Atividade',
   perf: 'Desempenho',
+  groups: 'Grupos e perfis',
   away: 'Enquanto você estava fora',
 };
 
@@ -529,7 +533,7 @@ function renderModal() {
     return;
   }
   const m = S.modal;
-  d.label = m.kind === 'game' ? (m.draft.id ? `Editar ${m.draft.name}` : 'Adicionar jogo') : m.kind === 'away' && m.draft.kind === 'daily' ? 'Resumo do dia' : MODAL_TITLES[m.kind];
+  d.label = m.kind === 'group' ? (m.draft.id ? `Editar ${m.draft.name || 'grupo'}` : 'Novo grupo') : m.kind === 'game' ? (m.draft.id ? `Editar ${m.draft.name}` : 'Adicionar jogo') : m.kind === 'away' && m.draft.kind === 'daily' ? 'Resumo do dia' : MODAL_TITLES[m.kind];
   // As boas-vindas só fecham pelo botão: sem jogos, o app fica vazio.
   d.toggleAttribute('light-dismiss', m.kind !== 'onboard');
   d.toggleAttribute('without-header', false);
@@ -546,6 +550,8 @@ function renderModalBody() {
     m.kind === 'settings' ? settingsHtml(m.draft) :
     m.kind === 'log' ? logHtml() :
     m.kind === 'perf' ? perfHtml(m.draft) :
+    m.kind === 'groups' ? groupsHtml() :
+    m.kind === 'group' ? groupEditHtml(m.draft) :
     m.kind === 'away' ? awayHtml(m.draft) : '';
   const d = dlg();
   if (d._html === html) return;
@@ -966,6 +972,103 @@ function awayHtml(s) {
     <wa-button slot="footer" variant="brand" data-dialog="close">Fechar</wa-button>`;
 }
 
+// ----- grupos e perfis
+// Quem decide o que acordar e dormir é o processo principal (src/main/groups.js); aqui só se desenha e se pede.
+function groupsHtml() {
+  const total = S.config.games.reduce((n, g) => n + g.accounts.length, 0);
+  const groups = S.config.groups;
+  const profiles = S.config.profiles;
+  const row = (lead, name, meta, buttons) =>
+    `<div class="arr-row">${lead}<span class="arr-name">${esc(name)}<span class="meta">${meta}</span></span>${buttons}</div>`;
+  return `<div class="form">
+      <div class="form-block">
+        <span class="form-label">Grupos</span>
+        <p class="meta">Junte contas de qualquer jogo. <b>Trocar para este grupo</b> acorda as contas dele e põe todas as outras para dormir.</p>
+        ${groups.length
+          ? groups
+              .map((g) =>
+                row(
+                  `<span class="swatch-dot" style="background:${esc(g.color)}"></span>`,
+                  g.name,
+                  plural(g.accountIds.length, 'conta', 'contas'),
+                  `<wa-button size="s" variant="brand" appearance="outlined" data-action="group-switch" data-id="${g.id}"><wa-icon slot="start" name="repeat"></wa-icon>Trocar para este grupo</wa-button>
+                   ${iconBtn('group-edit', 'pen', 'Editar grupo', `data-id="${g.id}"`)}${iconBtn('group-delete', 'trash', 'Apagar grupo', `data-id="${g.id}"`)}`
+                )
+              )
+              .join('')
+          : '<p class="meta">Nenhum grupo ainda.</p>'}
+        <div><wa-button size="s" variant="brand" appearance="outlined" data-action="group-new"><wa-icon slot="start" name="plus"></wa-icon>Novo grupo</wa-button></div>
+      </div>
+
+      <div class="form-block">
+        <span class="form-label">Perfis</span>
+        <p class="meta">Um perfil guarda a arrumação de agora: quais contas estão acordadas, o tamanho do jogo no mosaico e o som. Também dá para aplicar pelo ícone do IdleHub perto do relógio.</p>
+        ${profiles.length
+          ? profiles
+              .map((p) =>
+                row(
+                  icon('bookmark'),
+                  p.name,
+                  `${fmt(p.awake.length)} de ${fmt(total)} contas acordadas · ${p.muted ? 'tudo sem som' : 'som da conta aberta'}`,
+                  `<wa-button size="s" variant="brand" appearance="outlined" data-action="profile-apply" data-id="${p.id}"><wa-icon slot="start" name="check"></wa-icon>Aplicar</wa-button>
+                   ${iconBtn('profile-update', 'floppy-disk', 'Atualizar com a arrumação de agora', `data-id="${p.id}"`)}${iconBtn('profile-delete', 'trash', 'Apagar perfil', `data-id="${p.id}"`)}`
+                )
+              )
+              .join('')
+          : '<p class="meta">Nenhum perfil ainda. Arrume as contas do jeito que quiser e salve aqui embaixo.</p>'}
+        <div class="form-row">
+          <wa-input size="s" label="Nome do perfil" data-f="profile-name" maxlength="40" placeholder="Ex.: Só PokeIdle"></wa-input>
+          <wa-button size="s" variant="brand" appearance="outlined" data-action="profile-save" style="flex:0 0 auto"><wa-icon slot="start" name="floppy-disk"></wa-icon>Salvar arrumação de agora</wa-button>
+        </div>
+      </div>
+    </div>
+    <wa-button slot="footer" variant="brand" data-dialog="close">Fechar</wa-button>`;
+}
+
+function groupEditHtml(d) {
+  return `<div class="form">
+      <div class="form-block">
+        <wa-input label="Nome do grupo" data-f="group-name" maxlength="40" value="${esc(d.name)}" placeholder="Ex.: Contas principais"></wa-input>
+        <span class="form-label">Cor</span>
+        <div class="swatches">${S.groupColors
+          .map((c) => `<button class="swatch ${c === d.color ? 'on' : ''}" data-action="group-color" data-color="${c}" style="background:${c}" title="${c}" aria-label="Cor ${c}"></button>`)
+          .join('')}</div>
+      </div>
+      <div class="form-block">
+        <span class="form-label">Contas do grupo</span>
+        ${S.config.games
+          .map(
+            (g) => `<div class="member-game"><span class="pick-name"><span class="game-badge" style="background:${g.color}">${esc(g.short)}</span>${esc(g.name)}</span>
+              <div class="members">${g.accounts
+                .map((a) => `<wa-checkbox data-f="member" data-key="${keyOf(g, a)}" ${d.accountIds.includes(keyOf(g, a)) ? 'checked' : ''}>${esc(a.name)}</wa-checkbox>`)
+                .join('')}</div></div>`
+          )
+          .join('')}
+      </div>
+    </div>
+    <wa-button slot="footer" appearance="plain" data-action="open-groups">Cancelar</wa-button>
+    <wa-button slot="footer" variant="brand" data-action="group-save">Salvar grupo</wa-button>`;
+}
+
+function collectGroup() {
+  const d = S.modal.draft;
+  d.name = String($('#dialog [data-f="group-name"]')?.value ?? '').trim();
+  d.accountIds = $$('#dialog [data-f="member"]').filter((c) => c.checked).map((c) => c.dataset.key);
+}
+
+// Trocar de grupo ou aplicar perfil: fecha a janela, atualiza a tela e avisa o que vai acontecer.
+async function applyArrangement(kind, id, el) {
+  el.loading = true;
+  const r = await api.applyArrangement(kind, id);
+  el.loading = false;
+  if (!r.ok) return toast(r.error);
+  S.config = r.config;
+  closeModal();
+  await refreshConfig();
+  render();
+  toast(`${r.name}: ${plural(r.wake, 'conta acordando', 'contas acordando')} e ${r.sleep} dormindo.`, 'info');
+}
+
 // ----- atividade
 function logHtml() {
   const items = [...S.runtime.log].reverse();
@@ -1215,6 +1318,60 @@ async function onAction(act, el) {
       el.loading = false;
       return r.ok ? toast('Resumo enviado! Veja o Discord ou o Telegram.', 'info') : toast(r.error);
     }
+    case 'open-groups':
+      return openModal('groups', null);
+    case 'group-new':
+      return openModal('group', { id: '', name: '', color: S.groupColors[0], accountIds: [] });
+    case 'group-edit':
+      return openModal('group', clone(S.config.groups.find((g) => g.id === id)));
+    case 'group-color':
+      collectGroup();
+      S.modal.draft.color = el.dataset.color;
+      return renderModalBody();
+    case 'group-save': {
+      collectGroup();
+      const d = S.modal.draft;
+      if (!d.name) {
+        $('#dialog [data-f="group-name"]')?.focus();
+        return toast('Dê um nome para o grupo.');
+      }
+      if (!d.accountIds.length) return toast('Escolha pelo menos uma conta para o grupo.');
+      el.loading = true;
+      const r = await api.saveArrangement('group', d);
+      el.loading = false;
+      if (!r.ok) return toast(r.error);
+      S.config = r.config;
+      return openModal('groups', null);
+    }
+    case 'group-delete':
+    case 'profile-delete': {
+      const kind = act === 'group-delete' ? 'group' : 'profile';
+      const item = (kind === 'group' ? S.config.groups : S.config.profiles).find((x) => x.id === id);
+      if (!(await ask({ title: `Apagar ${kind === 'group' ? 'o grupo' : 'o perfil'} ${item?.name}?`, text: `Só ${kind === 'group' ? 'o grupo' : 'o perfil'} some: as contas continuam como estão.`, ok: 'Apagar', danger: true }))) return;
+      S.config = (await api.deleteArrangement(kind, id)).config;
+      return renderModalBody();
+    }
+    case 'group-switch':
+      return applyArrangement('group', id, el);
+    case 'profile-apply':
+      return applyArrangement('profile', id, el);
+    case 'profile-save':
+    case 'profile-update': {
+      const input = $('#dialog [data-f="profile-name"]');
+      const old = act === 'profile-update' ? S.config.profiles.find((p) => p.id === id) : null;
+      const name = old ? old.name : String(input?.value ?? '').trim();
+      if (!name) {
+        input?.focus();
+        return toast('Dê um nome para o perfil.');
+      }
+      el.loading = true;
+      const r = await api.saveArrangement('profile', { id: old?.id, name });
+      el.loading = false;
+      if (!r.ok) return toast(r.error);
+      S.config = r.config;
+      renderModalBody();
+      return toast(old ? `Perfil ${name} atualizado.` : `Perfil ${name} salvo.`, 'info');
+    }
     case 'open-log':
       S.seenLog = Date.now();
       updateRail();
@@ -1359,6 +1516,27 @@ async function onShortcut(s) {
   }
 }
 
+// Conta acordada ou dormindo por fora da interface (bandeja, fila de um grupo) ou perfil aplicado pela bandeja:
+// busca a config de novo. Com janela aberta, só o fundo se refaz (refazer a janela apagaria o que a pessoa digitou).
+let syncing = false;
+async function syncConfig(d) {
+  if (syncing || !S.config) return;
+  const mine = S.config.games.flatMap((g) => g.accounts.filter((a) => a.sleeping).map((a) => keyOf(g, a))).sort().join();
+  if (d.rev === S.rev && [...(d.sleeping || [])].sort().join() === mine) return;
+  syncing = true;
+  try {
+    S.rev = d.rev;
+    await refreshConfig();
+    if (S.modal) {
+      renderRail();
+      renderTop();
+      renderContent();
+    } else render();
+  } finally {
+    syncing = false;
+  }
+}
+
 async function refreshConfig() {
   const st = await api.getState();
   S.config = st.config;
@@ -1368,7 +1546,7 @@ async function refreshConfig() {
 // ---------------------------------------------------------------- início
 async function init() {
   const st = await api.getState();
-  Object.assign(S, { config: st.config, presets: st.presets, runtime: st.runtime, version: st.version, openAtLogin: st.openAtLogin });
+  Object.assign(S, { config: st.config, presets: st.presets, runtime: st.runtime, version: st.version, openAtLogin: st.openAtLogin, rev: st.rev, groupColors: st.groupColors });
   if (st.idlelive) S.idlelive = st.idlelive;
   // Espera a janela (já na página) ficar pronta, para as boas-vindas abrirem. O carregador do Web Awesome
   // só busca um componente quando ele aparece na página, então não dá para esperar os que ainda não foram desenhados.
@@ -1382,6 +1560,7 @@ async function init() {
     S.totalCpu = d.totalCpu || 0;
     if (d.idlelive) S.idlelive = d.idlelive;
     updateRuntime();
+    syncConfig(d);
   });
   // Jogos novos (ou atualizados) do catálogo na internet: atualiza a lista sem esperar ninguém reabrir o app.
   api.onCatalog((d) => {

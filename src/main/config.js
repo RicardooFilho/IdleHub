@@ -31,7 +31,7 @@ function file() {
 }
 
 function empty() {
-  return { version: 1, onboarded: false, settings: { ...DEFAULT_SETTINGS }, games: [] };
+  return { version: 1, onboarded: false, settings: { ...DEFAULT_SETTINGS }, games: [], groups: [], profiles: [] };
 }
 
 function load() {
@@ -39,6 +39,9 @@ function load() {
     const c = JSON.parse(fs.readFileSync(file(), 'utf8').replace(/^﻿/, ''));
     c.settings = { ...DEFAULT_SETTINGS, ...(c.settings || {}) };
     c.games = Array.isArray(c.games) ? c.games : [];
+    // Configs antigas não têm grupos nem perfis (a limpeza de contas apagadas é do groups.js).
+    c.groups = Array.isArray(c.groups) ? c.groups : [];
+    c.profiles = Array.isArray(c.profiles) ? c.profiles : [];
     return c;
   } catch {
     return empty();

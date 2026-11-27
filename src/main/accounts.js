@@ -9,6 +9,7 @@ const {
   CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, reconnectingTooLong, classifyPage, checkInternet,
 } = require('./recovery');
 const { AUTO_GAP_MS, ALL_GAP_MS, pickReturnUrl, staggerDelays, autoOptimizeReason } = require('./optimize');
+const { WAKE_GAP_MS } = require('./groups');
 const { ISSUE_TYPES } = require('./events');
 
 const PROBE_TIMEOUT_MS = 15000;
@@ -142,6 +143,7 @@ class AccountManager {
     this.internetDown = false; // um aviso só para o app inteiro, não um por conta
     this.nextOptimizeAt = 0; // otimização automática: uma por vez, com espaço entre elas
     this.optimizeTimers = new Set(); // fila do "Otimizar todas"
+    this.wakeTimers = new Set(); // fila de contas acordando ao trocar de grupo ou perfil
   }
 
   // ---------- helpers ----------
@@ -447,6 +449,36 @@ class AccountManager {
     a.sleeping = sleeping;
     this.saveConfig();
     this.sync();
+  }
+
+  // Grupo ou perfil: as contas de `sleep` dormem já (libera memória) e as de `wake` acordam uma por vez,
+  // com espaço entre elas, para o PC não carregar tudo junto. Uma troca nova cancela a fila da anterior.
+  applyArrangement({ wake, sleep }, label) {
+    this.cancelWakeQueue();
+    for (const key of sleep) {
+      const { a } = this.find(key);
+      if (a) a.sleeping = true;
+    }
+    this.log(null, `${label}: ${wake.length} acordando, ${sleep.length} dormindo`);
+    this.saveConfig();
+    this.sync();
+    staggerDelays(wake.length, WAKE_GAP_MS).forEach((delay, i) => {
+      const timer = setTimeout(() => {
+        this.wakeTimers.delete(timer);
+        this.setSleeping(wake[i], false);
+      }, delay);
+      this.wakeTimers.add(timer);
+    });
+  }
+
+  cancelWakeQueue() {
+    for (const t of this.wakeTimers) clearTimeout(t);
+    this.wakeTimers.clear();
+  }
+
+  // Chaves das contas dormindo: a interface compara com o que ela tem e se atualiza (a bandeja também acorda e dorme).
+  sleepingKeys() {
+    return this.getConfig().games.flatMap((g) => g.accounts.filter((a) => a.sleeping).map((a) => `${g.id}:${a.id}`));
   }
 
   action(key, act) {
@@ -940,6 +972,7 @@ class AccountManager {
     clearInterval(this.timer);
     for (const t of this.optimizeTimers) clearTimeout(t);
     this.optimizeTimers.clear();
+    this.cancelWakeQueue();
     for (const rt of this.rt.values()) this.destroyView(rt);
   }
 }
