@@ -90,6 +90,15 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 - O **aviso de banimento** é um `wa-callout variant="warning"` fixo, na lista e na revisão. A revisão mostra, nesta ordem: o que ela pode fazer (permissões, com selo baixo/médio/alto), sites e rede, sinais de automação, o aviso, as contas para ligar (`wa-checkbox`, nenhuma marcada) e a caixa **Entendi o risco…**, sem a qual **Instalar** (ou **Atualizar**) não segue. Na atualização entra o bloco **O que mudou** antes das permissões, com callout `warning` quando a versão nova ganha acesso. Extensão que o IdleHub recusa mostra só um callout `danger` com os motivos e o botão **Voltar**.
 - Tudo é calculado no processo principal (`src/main/extrisk.js`); a interface só desenha.
 
+### Cofre de logins
+
+- Botão de chave (`key`) no pé da barra lateral, antes do Desempenho. Dois conteúdos da janela de sempre (`#dialog`, `S.modal`, que esconde as contas): **Cofre de logins** (`vaultListHtml()`) e **Login da conta** (`vaultEditHtml()`). Sair de um para o outro troca o conteúdo; **Voltar** e **Salvar** voltam para a lista.
+- A lista tem um `wa-callout neutral` que explica o cofre, o bloco **Senha mestra (opcional)** e uma linha `.arr-row` por conta (agrupadas por jogo, com a sigla na cor do jogo): nome, resumo em `.meta` (usuário, "senha salva", "2FA") e o botão `variant="brand" appearance="outlined"` **Editar** (`pen`) ou **Adicionar login** (`plus`). Trancado, os botões ficam desligados e o bloco da senha mestra vira um `wa-callout` com o campo e **Destrancar** (`lock-open`; Enter também destranca). **Apagar o cofre (esqueci a senha)** fica no rodapé, `plain`, e pede `ask({ danger: true })`.
+- Senhas: sempre `wa-input type="password"` com `password-toggle` só para o que a pessoa está digitando. A senha salva nunca é preenchida no campo: o placeholder diz "Senha salva (escondida)" e **Mostrar** (`eye`) a põe, por 8 segundos, num `code.vault-reveal` abaixo do campo (o texto só existe na página, nunca em `S`). **Copiar** (`copy`) não passa pela interface e avisa em quantos segundos some da área de transferência. Notas salvas também ficam escondidas até **Mostrar notas**.
+- 2FA: interruptor **desligado** por padrão. Ligar mostra um `wa-callout variant="warning"` com o aviso (2FA junto com a senha enfraquece o 2FA; só contas de jogo), o campo do segredo e a caixa **Entendi o risco…**, sem a qual **Salvar** não guarda o código. Com 2FA salvo, o código aparece grande (`.totp-code`, números com `letter-spacing`) com a contagem em segundos, **Copiar** e **Remover o 2FA** (`ask({ danger: true })`); a contagem só troca os textos (não refaz a janela).
+- **Preencher login** (`right-to-bracket`): botão `variant="brand" appearance="outlined"` no topo do card da conta **expandida** (não vai no cabeçalho da tela, que já está cheio). O resultado sai em `toast` ("Login preenchido. Confira e clique em Entrar."); cofre trancado abre a janela do cofre; conta sem login salvo abre **Login da conta**. Nunca envia o formulário.
+- Ícones: `key` cofre de logins, `lock` / `lock-open` trancar e destrancar, `eye` mostrar, `copy` copiar, `right-to-bracket` preencher login.
+
 ### Atalhos de teclado
 
 - Valem só com a janela do IdleHub em foco (nada global) e são tratados no processo principal (`src/main/shortcuts.js`), porque o foco dentro de uma conta ou do Painel não chega na página da interface. A interface só reage ao que chega por `window.idle.onShortcut`.
@@ -150,6 +159,10 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `power-off` | Painel parado |
 | `puzzle-piece` | extensões do Chrome |
 | `clock-rotate-left` | voltar para a versão anterior da extensão |
+| `key` | cofre de logins |
+| `lock` / `lock-open` | trancar / destrancar o cofre (senha mestra) |
+| `eye` / `copy` | mostrar por alguns segundos / copiar um dado do cofre |
+| `right-to-bracket` | preencher o login da conta com o cofre |
 
 - O ícone do Painel na barra lateral é o pixel art do IdleLive (`icon.png`, `image-rendering: pixelated`).
 - Ícone sem texto do lado precisa de `label` (leitor de tela) e o botão em volta precisa de `title`.

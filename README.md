@@ -67,10 +67,14 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Extensões do Chrome por conta: instalar da loja ou de uma pasta, versão travada, ligar por conta | `src/main/extensions.js` |
 | Leitor de extensão da loja (`.crx`: assinatura, SHA-256, zip seguro, sem pacote novo) | `src/main/crx.js` |
 | Aviso de risco da extensão (permissões, sites, automação) e diferença entre versões | `src/main/extrisk.js` |
+| Cofre de logins: usuário, senha, notas e 2FA criptografados (`%APPDATA%/IdleHub/vault.json`), senha mestra, trancar | `src/main/vault.js` |
+| Códigos 2FA (TOTP, RFC 6238) feitos com o `crypto` do Node | `src/main/totp.js` |
+| Preencher login: onde pode e a função que roda na página (mundo isolado) | `src/main/loginfill.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
 
 - **Logins:** cada conta tem sua própria pasta de cookies (`persist:acc-<jogo>-<conta>`).
-  O painel não guarda senhas; você entra uma vez em cada conta e o login fica salvo.
+  O painel não guarda senhas por conta própria: você entra uma vez em cada conta e o login fica salvo na sessão.
+  Quem quiser pode guardar usuário e senha no [cofre de logins](#cofre-de-logins) (opcional).
 - **Watchdog:** a cada N segundos verifica cada conta. Recarrega se parar de responder,
   ficar em branco, cair ou ficar carregando demais (no máximo 1 recarga por minuto
   por conta). Avisa quando a conta sai do login.
@@ -123,6 +127,32 @@ Os jogos prontos (PokeIdle, LoLdle, One Piece Idle e os que vierem) ficam em `ca
 ```
 
 Ao passar de `maxAccounts`, o IdleHub avisa com o `banWarning` e pede confirmação; não bloqueia. Os testes (`test/catalog.test.js`) mostram o que é aceito.
+
+## Cofre de logins
+
+Opcional. Serve para não ter que digitar o usuário e a senha de cada conta toda vez que o jogo pedir o login de novo.
+
+- **Como usar:** **Cofre de logins** (chave, na barra lateral) → **Adicionar login** na conta → usuário, senha e, se quiser, notas.
+  Depois, com a conta expandida, clique em **Preencher login** na página de login. O IdleHub só preenche; você confere e clica em Entrar.
+- **Onde fica:** `%APPDATA%/IdleHub/vault.json` (separado do `config.json`). Cada login é criptografado com o `safeStorage` do Electron
+  (no Windows, só a sua conta do Windows abre). Nada é escrito em texto puro, e nada vai para o git, os registros ou a internet.
+  Trocar de PC ou de usuário do Windows exige guardar os logins de novo. Sem criptografia no Windows, o IdleHub não salva.
+- **Senha mestra (opcional):** uma segunda camada (AES-256-GCM, chave do scrypt com sal aleatório; só o sal e uma prova para conferir a senha
+  ficam no arquivo). O cofre tranca sozinho depois de N minutos parado (padrão 10; 0 = só ao bloquear o PC), e sempre que o PC bloqueia ou dorme.
+  Trancado, não dá para ver, copiar, editar nem preencher. **Não há recuperação**: quem esquecer a senha mestra apaga o cofre e começa de novo.
+- **Ver e copiar:** a senha só aparece ao clicar em **Mostrar** (8 segundos). **Copiar** vai direto do cofre para a área de transferência,
+  que é limpa depois de 30 segundos se ainda for o que o IdleHub copiou (e ao fechar o app). O histórico da área de transferência do Windows
+  (**Win+V**), se estiver ligado, pode guardar o que foi copiado: prefira **Preencher login**, ou desligue esse histórico.
+- **Preencher login:** só com o seu clique; só em página `https` do mesmo site do jogo ou do **Endereço da tela de login** que você salvou na conta;
+  **nunca no Google** (esse login continua à mão); nunca envia o formulário nem aperta Enter. O preenchimento roda num mundo isolado da página e
+  só recebe o login naquela chamada. Os campos são achados pela aparência (senha visível e o campo de texto antes dela); em login de dois passos,
+  preenche o usuário e você clica de novo na senha.
+- **2FA (opcional, desligado):** dá para guardar o segredo do 2FA (base32 ou o link `otpauth://`) e ver o código de 6 dígitos com a contagem e **Copiar**.
+  O IdleHub pede que você confirme um aviso, porque **guardar o 2FA junto com a senha enfraquece o 2FA**: quem abrir o cofre tem as duas coisas.
+  Só recomendado para contas de jogo, nunca para e-mail, Google ou contas com dinheiro.
+- **Riscos que continuam:** quem usar o seu Windows já logado (e destrancado, se tiver senha mestra) consegue pedir o preenchimento ou ver os logins;
+  um vírus rodando como você também. A senha mestra e o trancamento reduzem isso, mas não substituem um PC protegido.
+- Conta ou jogo removido: o login dele sai do cofre. Veja `test/vault.test.js`, `test/totp.test.js` e `test/loginfill.test.js` para o que é garantido.
 
 ## Extensões do Chrome
 

@@ -310,6 +310,15 @@ button.perf-row[aria-pressed="true"] { background: var(--brand-soft); box-shadow
 }
 #toast.info { background: var(--wa-color-surface-raised); color: var(--wa-color-text-normal); border: 1px solid var(--wa-color-surface-border); }
 
+/* Cofre de logins: a senha mostrada por alguns segundos e o código 2FA com a contagem. */
+.vault-reveal {
+  display: block; padding: var(--wa-space-xs) var(--wa-space-s); border-radius: 8px; font-size: 14px; word-break: break-all;
+  background: var(--wa-color-surface-lowered); border: 1px dashed var(--wa-color-surface-border);
+}
+.vault-reveal[hidden] { display: none; }
+.totp-box { display: flex; align-items: center; gap: var(--wa-space-s); flex-wrap: wrap; }
+.totp-code { font-size: 22px; font-weight: 600; letter-spacing: .08em; }
+
 /* Extensões do Chrome: um card por extensão, com as contas e a lista do que ela faz. */
 .ext-card {
   display: flex; flex-direction: column; gap: var(--wa-space-s); padding: var(--wa-space-m);
