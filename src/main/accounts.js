@@ -401,6 +401,22 @@ class AccountManager {
     }
   }
 
+  // Contas ligadas (com página). Contas dormindo ficam de fora.
+  liveKeys() {
+    return [...this.rt.values()].filter((rt) => rt.view).map((rt) => rt.key);
+  }
+
+  // Volta da suspensão (power.js): ignora o intervalo mínimo e não conta como queda
+  // nem manda notificação, só entra na Atividade.
+  reloadForResume(key, reason) {
+    const rt = this.rt.get(key);
+    const { g, a } = this.find(key);
+    if (!rt || !g || !a || a.sleeping) return;
+    rt.lastReload = 0;
+    this.reload(rt, null);
+    this.log(rt, `Recarreguei a conta: ${reason}.`);
+  }
+
   // ---------- watchdog + alertas ----------
   startWatchdog() {
     clearInterval(this.timer);

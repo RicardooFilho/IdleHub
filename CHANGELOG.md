@@ -4,6 +4,9 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 
 ## 26/11/2026
 
+### Novidades
+- Quando o PC volta da suspensão, o IdleHub recarrega as contas sozinho (uma de cada vez) para elas não ficarem paradas.
+
 ### Mudanças
 - O IdleHub ganhou a mesma cara do Painel: mesmos botões, janelas, ícones, fonte Montserrat e o laranja como cor de destaque.
 - Botões, ícones e fonte vêm junto com o app: a janela funciona mesmo sem internet.
