@@ -543,8 +543,10 @@ class AccountManager {
   // { ok: true, selector, fragile, text, number } | { ok: false, cancelled?, error? }.
   // O código roda na página só enquanto a pessoa escolhe e se remove sozinho (selector.js).
   pick(key) {
-    const wc = this.rt.get(key)?.view?.webContents;
+    const rt = this.rt.get(key);
+    const wc = rt?.view?.webContents;
     if (!wc || wc.isDestroyed()) return Promise.resolve({ ok: false, error: 'closed' });
+    if (rt.tabs && rt.tabs.active !== GAME_TAB) this.selectTab(key, GAME_TAB); // uma subpágina na frente cobriria o jogo
     this.cancelPick('replaced');
     return new Promise((resolve) => {
       const p = { key, wc, finish: resolve };
