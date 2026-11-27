@@ -23,6 +23,9 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 ### Mudanças
 - O limite de memória (**Otimizar se a conta passar de (MB)**, 1500 por padrão) agora **otimiza** a conta em vez de só recarregar a página: recarregar no mesmo processo quase não devolvia memória. Passou a valer só para conta funcionando bem, e não manda mais notificação (só aparece na Atividade).
 
+### Correções
+- "Abrir junto com o Windows" funciona com o IdleHub aberto pelo `npm start`: antes, ao ligar o PC, abria uma janela vazia do Electron no lugar do IdleHub. A entrada errada é corrigida sozinha na próxima vez que o IdleHub abrir.
+
 ## 26/11/2026
 
 ### Novidades
