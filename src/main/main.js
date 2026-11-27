@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell, dialog, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell, dialog, protocol, net, powerMonitor } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const config = require('./config');
@@ -6,6 +6,7 @@ const { PRESETS, gameFromPreset, sanitizeGame, migrateSessionTaken } = require('
 const { AccountManager } = require('./accounts');
 const { IdleLive } = require('./idlelive');
 const { PanelView } = require('./panel');
+const { setupPower } = require('./power');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -348,6 +349,7 @@ function start() {
   idlelive.start();
   mgr.sync();
   mgr.startWatchdog();
+  setupPower({ powerMonitor, mgr, net });
   createTray();
   setInterval(emitState, 3000);
   checkUpdates();
