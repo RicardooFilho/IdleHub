@@ -4,6 +4,22 @@ const crypto = require('crypto');
 
 const newId = () => crypto.randomUUID().replace(/-/g, '').slice(0, 10);
 
+// Frases (comparadas em minúsculas) com que os jogos avisam que a conta foi
+// aberta em outro lugar. Conservadoras de propósito: frases inteiras, nunca
+// palavras soltas como "sessão", para não pausar uma conta à toa.
+const SESSION_TAKEN_TEXTS = [
+  'aberta em outro lugar',
+  'conectado em outro lugar',
+  'logado em outro dispositivo',
+  'aberto em outra aba',
+  'aberta em outra aba',
+  'logged in elsewhere',
+  'logged in from another',
+  'opened in another tab',
+  'logged in on another device',
+  'session has been taken',
+];
+
 const PRESETS = [
   {
     preset: 'pokeidle',
@@ -13,6 +29,7 @@ const PRESETS = [
     url: 'https://pokeidle.io/',
     suggestedAccounts: 4,
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
+    sessionTaken: { textIncludes: SESSION_TAKEN_TEXTS },
     watchers: [
       // Exemplos desligados: ajuste o texto/seletor depois de olhar o jogo
       // com "Inspecionar" e ligue.
@@ -28,6 +45,7 @@ const PRESETS = [
     url: 'https://lolidle.com/jogar#entrar',
     suggestedAccounts: 5,
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
+    sessionTaken: { textIncludes: SESSION_TAKEN_TEXTS },
     watchers: [],
   },
   {
@@ -38,6 +56,7 @@ const PRESETS = [
     url: 'https://oneidlepiece.com/entrar',
     suggestedAccounts: 2,
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
+    sessionTaken: { textIncludes: SESSION_TAKEN_TEXTS },
     watchers: [],
   },
 ];
@@ -56,6 +75,7 @@ function gameFromPreset(p, { url, accounts } = {}) {
     url: url ?? p.url,
     accounts: makeAccounts(Math.max(1, Math.min(12, accounts ?? p.suggestedAccounts))),
     loggedOut: JSON.parse(JSON.stringify(p.loggedOut)),
+    sessionTaken: JSON.parse(JSON.stringify(p.sessionTaken)),
     watchers: p.watchers.map((w) => ({ ...w, id: newId() })),
   };
 }
@@ -82,6 +102,7 @@ function sanitizeGame(g) {
       urlIncludes: list(g.loggedOut?.urlIncludes),
       textIncludes: list(g.loggedOut?.textIncludes),
     },
+    sessionTaken: { textIncludes: list(g.sessionTaken?.textIncludes) },
     watchers: (g.watchers || []).slice(0, 30).map((w) => ({
       id: str(w.id, 40) || newId(),
       name: str(w.name, 40) || 'Alerta',
@@ -95,4 +116,15 @@ function sanitizeGame(g) {
   };
 }
 
-module.exports = { PRESETS, newId, gameFromPreset, sanitizeGame, makeAccounts };
+// Jogos salvos antes do aviso de "conta aberta em outro lugar" não têm o campo:
+// os de preset ganham os textos padrão; os de link livre ficam com a lista vazia
+// (ligado por quem quiser). Devolve true se mudou algo. Lista vazia salva de
+// propósito (o campo existe) nunca é refeita.
+function migrateSessionTaken(g) {
+  if (g.sessionTaken && Array.isArray(g.sessionTaken.textIncludes)) return false;
+  const p = PRESETS.find((x) => x.preset === g.preset);
+  g.sessionTaken = { textIncludes: p ? [...p.sessionTaken.textIncludes] : [] };
+  return true;
+}
+
+module.exports = { PRESETS, newId, gameFromPreset, sanitizeGame, makeAccounts, migrateSessionTaken };
