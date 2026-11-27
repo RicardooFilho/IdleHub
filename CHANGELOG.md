@@ -6,6 +6,13 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 
 ### Novidades
 - Os jogos não abrem mais janelas e anúncios sozinhos: só abre o que você clicou. Downloads só com clique, e programas (`.exe` e parecidos) nunca são baixados. O login com Google continua funcionando.
+- Quando o PC volta da suspensão, o IdleHub recarrega as contas sozinho (uma de cada vez) para elas não ficarem paradas.
+- Quando o jogo avisa que a conta foi aberta em outro lugar (outra aba, celular ou outro PC), o IdleHub não recarrega mais por cima e derruba a outra sessão: ele pausa o watchdog daquela conta por 10 minutos e avisa. A conta aparece como **Aberta em outro lugar**.
+- Os textos que indicam isso já vêm preenchidos nos jogos prontos e podem ser editados na tela do jogo, em **Textos de conta aberta em outro lugar**. Recarregar a conta à mão, ou dormir e acordar, tira a pausa.
+- **Sem internet**: quando a internet do PC cai, as contas ficam com o status "Sem internet" em vez de recarregar sem parar, e você recebe um aviso só (não um por conta). Quando a internet volta, elas recarregam sozinhas.
+- **Jogo fora do ar**: se o site do jogo cair (erros 520 a 527 do Cloudflare ou página que não abre), a conta fica como "Jogo fora do ar" e tenta de novo sozinha, esperando cada vez mais (30 s, 1 min, 2 min… até 15 min). Você é avisado uma vez, dizendo que o problema não é do IdleHub.
+- **Verificação do Cloudflare**: a tela "Verificando se você é humano" não é mais recarregada em loop. A conta fica como "Verificação" para dar tempo de ela passar sozinha; se demorar mais de 2 minutos, o IdleHub avisa para você abrir a conta e clicar na caixa.
+- **Conta que cai várias vezes**: se uma conta cair 5 vezes em 10 minutos, o IdleHub para de recarregar e avisa ("Precisa de atenção"). Recarregar à mão, voltar à página inicial ou dormir e acordar a conta recomeça a contagem.
 
 ### Mudanças
 - O IdleHub ganhou a mesma cara do Painel: mesmos botões, janelas, ícones, fonte Montserrat e o laranja como cor de destaque.

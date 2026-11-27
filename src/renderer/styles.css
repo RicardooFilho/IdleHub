@@ -106,7 +106,7 @@ body { font-family: 'Montserrat', system-ui, sans-serif; color: var(--wa-color-t
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--wa-color-neutral-fill-loud); }
 .dot.ok { background: var(--live); box-shadow: 0 0 0 3px color-mix(in srgb, var(--live) 25%, transparent); }
 .dot.loading { background: var(--brand); animation: pulse 1s infinite; }
-.dot.unresponsive, .dot.offline, .dot.logged-out { background: var(--wa-color-warning-fill-loud); }
+.dot.unresponsive, .dot.no-internet, .dot.server-down, .dot.challenge, .dot.attention, .dot.logged-out, .dot.session-taken { background: var(--wa-color-warning-fill-loud); }
 .dot.crashed { background: var(--error-fill); }
 @keyframes pulse { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .dot.loading { animation: none; } }
