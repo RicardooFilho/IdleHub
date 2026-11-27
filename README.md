@@ -48,6 +48,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Janela, bandeja, notificações, IPC | `src/main/main.js` |
 | Contas (uma sessão isolada por conta), watchdog, alertas | `src/main/accounts.js` |
 | Perfis prontos dos jogos | `src/main/games.js` |
+| Avisos fora do PC (Discord; cofre de segredos criptografado) | `src/main/remote.js` |
 | Configuração local (`%APPDATA%/IdleHub/config.json`) | `src/main/config.js` |
 | "Sempre visível" + limitador de FPS injetado no jogo | `src/preload/game.js` |
 | Interface (Web Awesome, Font Awesome e Montserrat vêm junto, servidos por `idlehub://`) | `src/renderer/` |
@@ -68,6 +69,18 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
   A lista também está em Configurações.
 - **Memória:** contas escondidas rodam com FPS limitado (só a animação; os temporizadores do
   jogo seguem em 100%); contas dormindo não gastam nada.
+
+## Avisos no celular
+
+- **Configurações → Avisos no celular → Discord:** cole o link de um webhook (no Discord:
+  Configurações do canal → Integrações → Webhooks → Copiar URL do webhook) e use **Enviar teste**.
+  Os avisos do Windows (conta caiu, alerta, sem internet) passam a ir também para o canal.
+- Não existe servidor nosso: o IdleHub fala direto com o Discord.
+- O link do webhook (e, no futuro, tokens de outros canais) fica em `%APPDATA%/IdleHub/secrets.json`,
+  **criptografado** com o `safeStorage` do Electron (no Windows, só a sua conta do Windows consegue abrir).
+  Nunca vai para o `config.json` nem para o git. Trocar de PC ou de usuário do Windows exige colar o link de novo.
+  Se o Windows não oferecer criptografia, o IdleHub não salva o link.
+- Para adicionar um canal novo (ex.: Telegram), veja a lista `CHANNELS` e a explicação no topo de `src/main/remote.js`.
 
 ## Painel (IdleLive)
 
