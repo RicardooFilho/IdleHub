@@ -13,6 +13,7 @@ const S = {
   perfAt: 0,
   view: loadView(), // panel | all | game | focus
   modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log' | 'away', draft }
+  reopen: null, // janela de Configurações a reabrir depois de ver o resumo do dia por ela
   awayPending: null, // resumo de "Enquanto você estava fora" esperando a janela aberta fechar
   asking: false,
   version: '',
@@ -501,7 +502,7 @@ function renderModal() {
     return;
   }
   const m = S.modal;
-  d.label = m.kind === 'game' ? (m.draft.id ? `Editar ${m.draft.name}` : 'Adicionar jogo') : MODAL_TITLES[m.kind];
+  d.label = m.kind === 'game' ? (m.draft.id ? `Editar ${m.draft.name}` : 'Adicionar jogo') : m.kind === 'away' && m.draft.kind === 'daily' ? 'Resumo do dia' : MODAL_TITLES[m.kind];
   // As boas-vindas só fecham pelo botão: sem jogos, o app fica vazio.
   d.toggleAttribute('light-dismiss', m.kind !== 'onboard');
   d.toggleAttribute('without-header', false);
@@ -539,6 +540,12 @@ dlg().addEventListener('wa-after-hide', (e) => {
   if (e.target !== e.currentTarget) return;
   scheduleLayout();
   showAwayPending();
+  // Veio das Configurações ver o resumo do dia: volta para elas, com o que já tinha sido digitado.
+  if (S.reopen && !S.modal && !S.awayPending && !S.asking) {
+    const back = S.reopen;
+    S.reopen = null;
+    openModal(back.kind, back.draft);
+  }
 });
 
 // ----- boas-vindas
@@ -759,6 +766,18 @@ function settingsHtml(d) {
           ${num('awaySummaryHours', 'Mostrar o resumo ao voltar depois de (horas)', 'Se você ficar parado esse tempo, o IdleHub mostra o que aconteceu com as contas quando você voltar. 0 = desligado.', 0, 72)}
         </div>
       </div>
+      <div class="form-block">
+        <span class="form-label">Resumo do dia</span>
+        ${sw('dailySummary', 'Montar um resumo do dia', 'No horário escolhido, mostra aqui no app e manda para o Discord e o Telegram que estiverem ligados em Avisos no celular. Tem as quedas, alertas, tempo rodando e internet das últimas 24 horas.')}
+        <div class="form-row">
+          <wa-input size="s" type="time" label="Horário (hora do PC)" data-f="dailySummaryTime" value="${esc(d.dailySummaryTime || '21:00')}"></wa-input>
+        </div>
+        <div class="form-row">
+          <wa-button size="s" variant="brand" appearance="outlined" data-action="daily-view"><wa-icon slot="start" name="eye"></wa-icon>Ver resumo agora</wa-button>
+          <wa-button size="s" variant="brand" appearance="outlined" data-action="daily-send"><wa-icon slot="start" name="paper-plane"></wa-icon>Enviar resumo agora</wa-button>
+        </div>
+        <p class="meta">Se o PC estiver desligado ou dormindo no horário, o resumo sai quando ele voltar (até 6 horas depois).</p>
+      </div>
       ${shortcutsHtml()}
       ${remoteHtml(d)}
       <div class="form-block">
@@ -843,7 +862,7 @@ function telegramHtml(d) {
 
 function collectSettings() {
   const d = S.modal.draft;
-  for (const el of $$('#dialog [data-f]')) d[el.dataset.f] = el.localName === 'wa-switch' ? el.checked : Number(el.value);
+  for (const el of $$('#dialog [data-f]')) d[el.dataset.f] = el.localName === 'wa-switch' ? el.checked : el.dataset.f === 'dailySummaryTime' ? el.value : Number(el.value);
 }
 
 // ----- enquanto você estava fora
@@ -878,6 +897,7 @@ function awayHtml(s) {
   const t = s.totals;
   const sameDay = new Date(s.from).toDateString() === new Date(s.to).toDateString();
   const since = sameDay ? `das ${clock(s.from)} às ${clock(s.to)}` : `desde ${new Date(s.from).toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+  const daily = s.kind === 'daily';
   const calm = !t.drops && !t.alerts && !s.needsAttention.length;
   const tile = (ic, value, label, warn = false) =>
     `<div class="away-stat ${warn ? 'warn' : ''}">${icon(ic)}<span class="away-num num">${value}</span><span class="meta">${esc(label)}</span></div>`;
@@ -907,9 +927,10 @@ function awayHtml(s) {
           })
           .join('')}</div></div>`
     : '';
+  const intro = daily ? `Resumo das últimas ${esc(fmtDur(s.durationMs))} (${esc(since)}).` : `Você ficou fora por ${esc(fmtDur(s.durationMs))} (${esc(since)}).`;
   return `<div class="form">
-      <p class="meta" style="margin:0">Você ficou fora por ${esc(fmtDur(s.durationMs))} (${esc(since)}).</p>
-      ${calm ? `<wa-callout variant="success" size="small"><wa-icon slot="icon" name="circle-check"></wa-icon>Tudo certo: nenhuma conta caiu nem pediu atenção nesse tempo.</wa-callout>` : ''}
+      <p class="meta" style="margin:0">${intro}</p>
+      ${calm ? `<wa-callout variant="success" size="small"><wa-icon slot="icon" name="circle-check"></wa-icon>Tudo certo: nenhuma conta caiu nem pediu atenção ${daily ? 'nesse período' : 'nesse tempo'}.</wa-callout>` : ''}
       <div class="away-stats">${stats.join('')}</div>
       ${attention}${detail}
     </div>
@@ -1152,6 +1173,20 @@ async function onAction(act, el) {
       renderModalBody();
       return toast(tg ? 'Token removido.' : 'Link removido.', 'info');
     }
+    case 'daily-view': {
+      collectSettings();
+      el.loading = true;
+      const s = await api.dailyPreview();
+      el.loading = false;
+      S.reopen = S.modal; // com o que a pessoa já mexeu: volta para cá ao fechar o resumo
+      return openModal('away', s);
+    }
+    case 'daily-send': {
+      el.loading = true;
+      const r = await api.dailySend();
+      el.loading = false;
+      return r.ok ? toast('Resumo enviado! Veja o Discord ou o Telegram.', 'info') : toast(r.error);
+    }
     case 'open-log':
       S.seenLog = Date.now();
       updateRail();
@@ -1321,6 +1356,7 @@ async function init() {
   api.onFocusAccount(focusAccount);
   api.onShortcut(onShortcut);
   api.onAwaySummary(showAway);
+  api.onDailySummary(showAway);
 
   // Um ouvinte só para todos os botões (data-action), como pede o DESIGN.md.
   document.addEventListener('click', (e) => {

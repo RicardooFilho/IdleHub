@@ -20,6 +20,8 @@ const DEFAULT_SETTINGS = {
   notifyDiscord: false, // só o liga/desliga: o link do webhook fica criptografado em secrets.json (remote.js)
   tileBaseWidth: 1280, // largura "real" do jogo; o mosaico encolhe a partir dela
   startMinimized: false,
+  dailySummary: false, // manda o resumo das últimas 24 h no horário abaixo (no app e nos canais Discord/Telegram ligados)
+  dailySummaryTime: '21:00', // HH:MM, hora do PC
   awaySummaryHours: 2, // ao voltar de uma ausência de pelo menos tantas horas, mostra o resumo do que aconteceu (0 = desligado)
 };
 

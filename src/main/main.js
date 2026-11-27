@@ -12,6 +12,7 @@ const { createRemote } = require('./remote');
 const { MetricsTracker } = require('./metrics');
 const { createEventLog, summarize } = require('./events');
 const { setupAway } = require('./away');
+const daily = require('./daily');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -63,6 +64,7 @@ let remote = null;
 const tracker = new MetricsTracker(); // histórico de CPU e memória (metrics.js)
 let events = null;
 let away = null;
+let dailyJob = null;
 let quitting = false;
 let trayHintShown = false;
 let emitQueued = false;
@@ -77,13 +79,14 @@ function showWindow() {
 }
 
 // phone=false: avisos só do app (ex.: "continua rodando") não vão para o Discord e afins.
-function notify(title, body, key, { phone = true } = {}) {
+function notify(title, body, key, { phone = true, onClick } = {}) {
   if (phone) remote?.sendAll({ title, body }); // não espera e não lança; vale mesmo com notifyWindows desligado
   if (!cfg.settings.notifyWindows || !Notification.isSupported()) return;
   const n = new Notification({ title, body, icon: ICON });
   n.on('click', () => {
     showWindow();
-    if (key) win.webContents.send('focus-account', key);
+    if (onClick) onClick();
+    else if (key) win.webContents.send('focus-account', key);
   });
   n.show();
 }
@@ -101,6 +104,23 @@ function summaryFor(from, to) {
 // A pessoa voltou depois de horas: manda o resumo para a interface (ela mostra quando a janela abrir).
 function onBack({ from, to }) {
   if (win && !win.isDestroyed()) win.webContents.send('away-summary', summaryFor(from, to));
+}
+
+// Resumo do dia: o texto vai para os canais ligados; no app, o cartão abre na hora se a janela estiver à vista,
+// senão a notificação do Windows (curta) abre o resumo ao clicar.
+function showDailyInApp(summary) {
+  showWindow();
+  win.webContents.send('daily-summary', { ...summary, kind: 'daily' });
+}
+
+function onDailyDue({ from, to }) {
+  const summary = summaryFor(from, to);
+  remote?.sendAll(daily.formatDaily(summary)); // não espera e não lança
+  if (win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()) {
+    win.webContents.send('daily-summary', { ...summary, kind: 'daily' });
+  } else {
+    notify(daily.TITLE, daily.shortLine(summary), undefined, { phone: false, onClick: () => showDailyInApp(summary) });
+  }
 }
 
 function emitState() {
@@ -316,6 +336,7 @@ function registerIpc() {
       const n = Number(v);
       return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
     };
+    const prev = cfg.settings;
     cfg.settings = {
       ...cfg.settings,
       watchdogIntervalSec: num(s.watchdogIntervalSec, d.watchdogIntervalSec, 10, 600),
@@ -332,7 +353,11 @@ function registerIpc() {
       notifyTelegram: !!s.notifyTelegram,
       startMinimized: !!s.startMinimized,
       awaySummaryHours: num(s.awaySummaryHours, d.awaySummaryHours, 0, 72),
+      dailySummary: !!s.dailySummary,
+      dailySummaryTime: daily.normalizeTime(s.dailySummaryTime, prev.dailySummaryTime),
     };
+    // Ligou, ou mudou o horário: o primeiro resumo é o do próximo horário (nada de mandar o de ontem agora).
+    if (cfg.settings.dailySummary && (!prev.dailySummary || cfg.settings.dailySummaryTime !== prev.dailySummaryTime)) cfg.lastDailySummaryAt = Date.now();
     app.setLoginItemSettings({ openAtLogin: !!s.openAtLogin });
     saveConfig();
     mgr.startWatchdog();
@@ -385,6 +410,19 @@ function registerIpc() {
     return summaryFor(Number.isFinite(a) ? a : t - 24 * 3600 * 1000, Number.isFinite(b) ? b : t);
   });
 
+  // "Ver resumo agora" e "Enviar resumo agora": as últimas 24 h até agora (não mexe no resumo agendado).
+  ipcMain.handle('daily:preview', () => {
+    const { from, to } = daily.lastDayPeriod(Date.now());
+    return { ...summaryFor(from, to), kind: 'daily' };
+  });
+  ipcMain.handle('daily:send', async () => {
+    const { from, to } = daily.lastDayPeriod(Date.now());
+    const results = await remote.sendAll(daily.formatDaily(summaryFor(from, to)));
+    if (!results.length) return { ok: false, error: 'Nenhum canal ligado. Ligue o Discord ou o Telegram em Avisos no celular e salve.' };
+    const bad = results.find((r) => !r.ok);
+    return bad ? { ok: false, error: bad.error || 'Não consegui enviar.' } : { ok: true };
+  });
+
   ipcMain.handle('open:data', () => shell.openPath(app.getPath('userData')));
 }
 
@@ -430,6 +468,16 @@ function start() {
   mgr.startWatchdog();
   setupPower({ powerMonitor, mgr, net, events });
   away = setupAway({ powerMonitor, getHours: () => cfg.settings.awaySummaryHours, onBack });
+  dailyJob = daily.setupDaily({
+    getSettings: () => cfg.settings,
+    getLastAt: () => cfg.lastDailySummaryAt || 0,
+    setLastAt: (t) => {
+      cfg.lastDailySummaryAt = t;
+      saveConfig();
+    },
+    onDue: onDailyDue,
+    powerMonitor,
+  });
   // Teste (com IDLEHUB_DEBUG): IDLEHUB_AWAY_DEMO=3 mostra o cartão como se a pessoa tivesse voltado após 3 h.
   if (process.env.IDLEHUB_DEBUG && process.env.IDLEHUB_AWAY_DEMO) {
     win.webContents.once('did-finish-load', () => setTimeout(() => onBack({ from: Date.now() - Number(process.env.IDLEHUB_AWAY_DEMO) * 3600 * 1000, to: Date.now() }), 3000));
@@ -447,6 +495,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true;
     away?.dispose();
+    dailyJob?.dispose();
     events?.add({ type: 'app-stop' });
     events?.close(); // grava o que faltava antes de fechar
     mgr?.shutdown();

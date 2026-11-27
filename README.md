@@ -59,6 +59,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Histórico de CPU e memória (última hora) e regra de conta "pesada" | `src/main/metrics.js` |
 | Registro de eventos das contas (`%APPDATA%/IdleHub/events.jsonl`) e resumo de um período | `src/main/events.js` |
 | Percebe a volta ao PC depois de horas fora ("Enquanto você estava fora") | `src/main/away.js` |
+| Resumo do dia: horário marcado, texto para os canais e recuperação se o PC estava dormindo | `src/main/daily.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
 
 - **Logins:** cada conta tem sua própria pasta de cookies (`persist:acc-<jogo>-<conta>`).
