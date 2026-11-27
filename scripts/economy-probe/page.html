@@ -1,0 +1,153 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Página de teste do modo econômico</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0f1117; color: #cbd5e1; font: 12px monospace; overflow: hidden; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #s { position: absolute; left: 6px; top: 4px; }
+  #spin { position: absolute; right: 8px; top: 8px; width: 24px; height: 24px; border: 3px solid #38bdf8; border-top-color: transparent; border-radius: 50%; animation: r 1s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+</style>
+<canvas id="c"></canvas><div id="spin"></div><div id="s"></div>
+<script>
+// Página que imita um jogo idle: canvas animado + texto mudando + vários temporizadores + WebSocket.
+// Tudo que importa é contado AQUI dentro e lido pelo main.js no fim (window.__probe.read()).
+(() => {
+  const BUCKET_MS = 10000;
+  const now = () => performance.now();
+  let m;
+  const fresh = () => ({
+    t0: now(), date0: Date.now(),
+    ticks: 0, lastTick: now(), tickGapMax: 0, tickGapSum: 0,
+    tm: 0, tmLate: 0, tmLateMax: 0, tmGapMax: 0, tmLast: now(),
+    dtProgress: 0, lastDate: Date.now(),
+    frames: 0, frameGapMax: 0, lastFrame: 0,
+    wsN: 0, wsFirst: -1, wsLast: -1, lagSum: 0, lagMax: 0, lags: [],
+    buckets: [],
+  });
+  m = fresh();
+  const bucket = () => {
+    const i = Math.floor((now() - m.t0) / BUCKET_MS);
+    return (m.buckets[i] = m.buckets[i] || { ticks: 0, tm: 0, frames: 0, ws: 0 });
+  };
+
+  // 1) setInterval de 100 ms: contador "por tick" e progresso por diferença de Date.now()
+  setInterval(() => {
+    const t = now();
+    const gap = t - m.lastTick;
+    m.lastTick = t;
+    m.ticks++;
+    m.tickGapSum += gap;
+    if (gap > m.tickGapMax) m.tickGapMax = gap;
+    const d = Date.now();
+    m.dtProgress += (d - m.lastDate) / 1000;
+    m.lastDate = d;
+    bucket().ticks++;
+  }, 100);
+
+  // 2) setTimeout encadeado de 50 ms: mede o atraso de cada disparo
+  const loopTm = () => {
+    const due = now() + 50;
+    setTimeout(() => {
+      const t = now();
+      const late = t - due;
+      m.tm++;
+      m.tmLate += late;
+      if (late > m.tmLateMax) m.tmLateMax = late;
+      const gap = t - m.tmLast;
+      m.tmLast = t;
+      if (gap > m.tmGapMax) m.tmGapMax = gap;
+      bucket().tm++;
+      loopTm();
+    }, 50);
+  };
+  loopTm();
+
+  // 3) requestAnimationFrame (com o limitador do preload) desenhando num canvas e mudando texto
+  const c = document.getElementById('c');
+  const ctx = c.getContext('2d');
+  const out = document.getElementById('s');
+  const dots = Array.from({ length: 300 }, (_, i) => ({ x: Math.random() * 600, y: Math.random() * 400, v: 0.5 + Math.random() * 2, r: 3 + (i % 9) }));
+  const frame = (t) => {
+    const w = (c.width = c.clientWidth || 320);
+    const h = (c.height = c.clientHeight || 180);
+    const g = ctx.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, '#1e293b');
+    g.addColorStop(1, '#0f172a');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    for (const d of dots) {
+      d.x = (d.x + d.v) % w;
+      d.y = (d.y + d.v * 0.37) % h;
+      ctx.fillStyle = `hsl(${(d.x * 0.6 + t * 0.05) % 360} 70% 55%)`;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r, 0, 6.283);
+      ctx.fill();
+    }
+    out.textContent = `ticks ${m.ticks} · quadros ${m.frames} · ${Math.round(t)}`;
+    const tt = now();
+    if (m.lastFrame && tt - m.lastFrame > m.frameGapMax) m.frameGapMax = tt - m.lastFrame;
+    m.lastFrame = tt;
+    m.frames++;
+    bucket().frames++;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+
+  // 4) WebSocket: o servidor manda { seq, ts } a cada 100 ms; medimos quantas chegam e com que atraso
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.addEventListener('message', (e) => {
+    const msg = JSON.parse(e.data);
+    const lag = Date.now() - msg.ts;
+    m.wsN++;
+    if (m.wsFirst < 0) m.wsFirst = msg.seq;
+    m.wsLast = msg.seq;
+    m.lagSum += lag;
+    if (lag > m.lagMax) m.lagMax = lag;
+    m.lags.push(lag);
+    bucket().ws++;
+  });
+
+  const pct = (arr, p) => {
+    if (!arr.length) return 0;
+    const s = [...arr].sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.floor(s.length * p))];
+  };
+
+  window.__probe = {
+    reset: () => {
+      m = fresh();
+      return true;
+    },
+    read: () => {
+      const el = now() - m.t0; // ms desde o reset
+      return {
+        elapsedMs: Math.round(el),
+        dateElapsedMs: Date.now() - m.date0,
+        hidden: document.hidden,
+        visibility: document.visibilityState,
+        ticks: m.ticks,
+        tickRatio: m.ticks / (el / 100),
+        tickGapMax: Math.round(m.tickGapMax),
+        dtProgressRatio: m.dtProgress / (el / 1000),
+        tm: m.tm,
+        tmRatio: m.tm / (el / 50),
+        tmLateAvg: m.tm ? m.tmLate / m.tm : 0,
+        tmLateMax: Math.round(m.tmLateMax),
+        tmGapMax: Math.round(m.tmGapMax),
+        frames: m.frames,
+        fps: m.frames / (el / 1000),
+        frameGapMax: Math.round(m.frameGapMax),
+        wsN: m.wsN,
+        wsRatio: m.wsN / (el / 100),
+        wsSpan: m.wsLast >= 0 ? m.wsLast - m.wsFirst + 1 : 0,
+        lagAvg: m.wsN ? m.lagSum / m.wsN : 0,
+        lagP95: pct(m.lags, 0.95),
+        lagMax: Math.round(m.lagMax),
+        wsState: ws.readyState,
+        buckets: m.buckets.map((b) => b || { ticks: 0, tm: 0, frames: 0, ws: 0 }),
+      };
+    },
+  };
+})();
+</script>
