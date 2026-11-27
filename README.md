@@ -70,6 +70,9 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Cofre de logins: usuário, senha, notas e 2FA criptografados (`%APPDATA%/IdleHub/vault.json`), senha mestra, trancar | `src/main/vault.js` |
 | Códigos 2FA (TOTP, RFC 6238) feitos com o `crypto` do Node | `src/main/totp.js` |
 | Preencher login: onde pode e a função que roda na página (mundo isolado) | `src/main/loginfill.js` |
+| Scripts de usuário (`.user.js`) por conta: instalar por link ou colando, versão travada, ligar por conta, dados e rede dos `GM_*` | `src/main/userscript-store.js` |
+| Scripts de usuário: ler o cabeçalho, `@match`/`@include`, risco antes de instalar e as funções `GM_*` que vão para a página | `src/main/userscripts.js` |
+| `fetch` dos scripts (confere cada redirecionamento antes de seguir) | `src/main/netfetch.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
 
 - **Logins:** cada conta tem sua própria pasta de cookies (`persist:acc-<jogo>-<conta>`).
@@ -170,6 +173,23 @@ Opcional. Serve para não ter que digitar o usuário e a senha de cada conta tod
 - Os arquivos ficam em `%APPDATA%/IdleHub/extensions/<id>/<versão>`; quais contas usam cada extensão fica no `config.json` (`extensions`).
   Nada disso entra no git. Os dados de cada extensão (`chrome.storage`) ficam na sessão de cada conta.
 - Cada conta com extensão ganha um processo a mais de extensão (memória). Veja em **Desempenho** antes de ligar em todas as contas.
+
+## Scripts de usuário (.user.js)
+
+- **Extensões** (peça de quebra-cabeça na barra lateral) → aba **Scripts de usuário** → **Instalar script**: cole o link de uma página do
+  Greasy Fork ou do OpenUserJS (ou de um `.user.js` do GitHub) ou o código do script. Antes de instalar, uma tela mostra os sites onde ele
+  roda, as funções `GM_*` que ele pede, os endereços de rede (`@connect`), os sinais de automação e o aviso de possível banimento.
+  O script nasce **desligado**: você escolhe em quais contas ele roda (interruptor por conta; a conta recarrega ao ligar ou desligar).
+- Só roda em **sites dos seus jogos** e **nunca no login do Google**. Ficam de fora os scripts que baixam código de outros sites
+  (`@require`, `@resource`), os que pedem `@connect *` ou `GM_cookie` e os que querem rodar em qualquer site.
+- Funções: `GM_getValue/setValue/deleteValue/listValues` (dados por script e por conta), `GM_addStyle`, `GM_notification`,
+  `GM_xmlhttpRequest` (só para os endereços do `@connect`, sem os cookies da conta) e `GM_info`, mais as versões `GM.*`.
+  Com `@grant none` (ou sem `@grant`) o script roda junto com o jogo; com `GM_*` roda num mundo à parte. Não há menu do script nem `unsafeWindow`
+  junto com `GM_*`, e scripts em `iframe` não rodam.
+- **Versão travada:** nada se atualiza sozinho. **Procurar atualização** (ou **Atualizar colando o código**) mostra o que mudou e só troca com o seu
+  "sim"; a versão anterior fica guardada. O arquivo é conferido pelo SHA-256 a cada vez que a conta abre.
+- Os arquivos ficam em `%APPDATA%/IdleHub/userscripts/<id>` (o script e os dados dele por conta); quais contas usam cada script fica no
+  `config.json` (`userscripts`). Nada disso entra no git.
 
 ## Avisos no celular
 

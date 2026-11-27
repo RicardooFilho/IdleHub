@@ -140,7 +140,7 @@ function fmtNum(v) {
 }
 
 class AccountManager {
-  constructor({ win, getConfig, saveConfig, notify, onChange, onShortcut, events, extensions }) {
+  constructor({ win, getConfig, saveConfig, notify, onChange, onShortcut, events, extensions, userscripts }) {
     this.win = win;
     this.getConfig = getConfig;
     this.saveConfig = saveConfig;
@@ -149,6 +149,7 @@ class AccountManager {
     this.onShortcut = onShortcut || (() => {});
     this.events = events || { add() {} }; // registro de eventos (events.js): alimenta os resumos
     this.extensions = extensions || null; // extensões do Chrome por conta (extensions.js)
+    this.userscripts = userscripts || null; // scripts de usuário por conta (userscript-store.js)
     this.rt = new Map(); // key -> runtime
     this.layout = [];
     this.logs = [];
@@ -404,6 +405,23 @@ class AccountManager {
     }
   }
 
+  // Qual conta é dona desta página (o jogo ou uma subpágina)? null para pop-ups e qualquer outra janela.
+  keyOfWebContents(wc) {
+    for (const rt of this.rt.values()) {
+      if (rt.view?.webContents === wc) return rt.key;
+      for (const sub of rt.subs.values()) if (sub.view.webContents === wc) return rt.key;
+    }
+    return null;
+  }
+
+  // Ligou ou desligou scripts de usuário numas contas: recarrega só essas (o script entra ou sai na página nova).
+  applyUserscripts(keys) {
+    for (const key of keys) {
+      this.userscripts?.stop(key);
+      if (this.rt.get(key)?.view) this.action(key, 'reload');
+    }
+  }
+
   // Só abre janela nova o que a pessoa clicou (anúncios que abrem sozinhos são
   // barrados). Vale também dentro dos pop-ups que foram permitidos. `owner`
   // guarda o último clique da página (a própria conta ou o pop-up).
@@ -484,6 +502,7 @@ class AccountManager {
     clearTimeout(rt.crashTimer);
     rt.retryTimer = rt.crashTimer = null;
     this.destroySubs(rt); // dormir, otimizar e fechar a conta também fecham as subpáginas
+    this.userscripts?.stop(rt.key); // e cancelam os pedidos de rede dos scripts de usuário
     if (!rt.view) return;
     const view = rt.view;
     rt.view = null;

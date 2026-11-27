@@ -18,6 +18,8 @@ const groups = require('./groups');
 const { ExtensionStore } = require('./extensions');
 const { createVault, createClipboardGuard } = require('./vault');
 const { canFill, runFill } = require('./loginfill');
+const { UserScriptStore } = require('./userscript-store');
+const { createManualFetch } = require('./netfetch');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -80,6 +82,7 @@ let remote = null;
 let extensions = null; // extensões do Chrome por conta (extensions.js)
 let vault = null; // cofre de logins (vault.js): usuário, senha e 2FA criptografados
 let clip = null; // copiar do cofre e limpar a área de transferência depois (vault.js)
+let userscripts = null; // scripts de usuário por conta (userscript-store.js)
 const tracker = new MetricsTracker(); // histórico de CPU e memória (metrics.js)
 let events = null;
 let away = null;
@@ -386,6 +389,7 @@ function registerIpc() {
     buildTrayMenu();
     mgr.sync();
     extensions.pruneAccounts();
+    userscripts.pruneAccounts();
     return cfg;
   });
 
@@ -398,6 +402,7 @@ function registerIpc() {
     buildTrayMenu();
     mgr.sync();
     extensions.pruneAccounts();
+    userscripts.pruneAccounts();
     g.accounts.forEach((a) => {
       mgr.forget(g.id, a.id);
       vault.remove(`${g.id}:${a.id}`);
@@ -614,6 +619,73 @@ function registerIpc() {
     return r;
   });
 
+  // Scripts de usuário (TAG-35): a tela usa os canais 'us:*' com invoke; as páginas das contas usam os de baixo,
+  // que só existem no mundo isolado de cada script (src/preload/game.js). Todo pedido da página é conferido:
+  // a página tem de ser de uma conta (não um pop-up), de frame principal, e o script tem de estar ligado nela.
+  const appliedUs = async (r) => {
+    if (r.ok && r.accounts?.length) mgr.applyUserscripts(r.accounts);
+    return r;
+  };
+  ipcMain.handle('us:list', () => userscripts.list());
+  ipcMain.handle('us:prepare-url', (_e, input) => userscripts.prepareUrl(String(input ?? '')));
+  ipcMain.handle('us:prepare-code', (_e, code) => userscripts.prepareCode(String(code ?? '')));
+  ipcMain.handle('us:prepare-update', (_e, id) => userscripts.prepareUpdate(String(id)));
+  ipcMain.handle('us:prepare-update-code', (_e, id, code) => userscripts.prepareUpdateCode(String(id), String(code ?? '')));
+  ipcMain.handle('us:confirm', async (_e, token, keys) => appliedUs(userscripts.confirmInstall(String(token), Array.isArray(keys) ? keys.map(String) : [])));
+  ipcMain.handle('us:confirm-update', async (_e, token) => appliedUs(userscripts.confirmUpdate(String(token))));
+  ipcMain.handle('us:discard', (_e, token) => userscripts.discard(String(token)));
+  ipcMain.handle('us:rollback', async (_e, id) => appliedUs(userscripts.rollback(String(id))));
+  ipcMain.handle('us:remove', async (_e, id) => appliedUs(userscripts.remove(String(id))));
+  ipcMain.handle('us:set-account', async (_e, id, key, on) => {
+    const r = userscripts.setAccount(String(id), String(key), !!on);
+    if (r.ok) mgr.applyUserscripts([String(key)]);
+    return r;
+  });
+
+  const fromGame = (e) => {
+    try {
+      const f = e.senderFrame;
+      if (!f || f.parent) return null; // só a página principal (nada de iframes)
+      const key = mgr.keyOfWebContents(e.sender);
+      return key ? { key, url: f.url } : null;
+    } catch {
+      return null;
+    }
+  };
+  ipcMain.on('us:plan', (e) => {
+    let plan = [];
+    try {
+      const g = fromGame(e);
+      if (g) plan = userscripts.plan(g.key, g.url);
+    } catch {}
+    e.returnValue = plan; // sendSync: sempre responde, nem que seja vazio
+  });
+  ipcMain.on('us:set', (_e, id, name, json) => {
+    const g = fromGame(_e);
+    if (g && userscripts.authorize(g.key, String(id), g.url, 'setvalue')) userscripts.setValue(g.key, String(id), name, json);
+  });
+  ipcMain.on('us:del', (_e, id, name) => {
+    const g = fromGame(_e);
+    if (g && userscripts.authorize(g.key, String(id), g.url, 'deletevalue')) userscripts.deleteValue(g.key, String(id), name);
+  });
+  ipcMain.on('us:notify', (_e, id, o) => {
+    const g = fromGame(_e);
+    if (g) userscripts.notify(g.key, String(id), g.url, o);
+  });
+  ipcMain.on('us:error', (_e, id, message) => {
+    const g = fromGame(_e);
+    if (g) userscripts.reportError(g.key, String(id), message);
+  });
+  ipcMain.on('us:abort', (_e, id, reqId) => {
+    const g = fromGame(_e);
+    if (g) userscripts.abort(g.key, String(id), reqId);
+  });
+  ipcMain.handle('us:xhr', async (e, id, reqId, req) => {
+    const g = fromGame(e);
+    if (!g || !req || typeof req !== 'object') return { error: 'Pedido recusado.' };
+    return userscripts.request(g.key, String(id), g.url, String(reqId), req);
+  });
+
   ipcMain.handle('open:data', () => shell.openPath(app.getPath('userData')));
 }
 
@@ -689,7 +761,17 @@ function start() {
   clip = createClipboardGuard({ clipboard });
   // Rede de segurança: login de conta que não existe mais. Com config vazia (arquivo ilegível), não mexe em nada.
   if (cfg.games.length) vault.prune(groups.accountKeys(cfg));
-  mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit, onShortcut: sendShortcut, events, extensions });
+  userscripts = new UserScriptStore({
+    root: path.join(config.dataDir(), 'userscripts'),
+    getConfig: () => cfg,
+    saveConfig,
+    fetch: createManualFetch(net), // cada redirecionamento é conferido pelo store (net.fetch não deixa)
+    appVersion: app.getVersion(),
+    // GM_notification passa pelo mesmo caminho dos avisos do app, mas não vai para o Discord/Telegram.
+    notify: (key, script, title, text) => notify(title ? `${script} · ${title}` : script, text, key, { phone: false }),
+    onProblem: (key, text) => mgr?.log(mgr.rt.get(key), text, 'warn'),
+  });
+  mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit, onShortcut: sendShortcut, events, extensions, userscripts });
   idlelive = new IdleLive({ onChange: scheduleEmit, onReady: () => panel?.onServerReady() });
   panel = new PanelView({ win, idlelive, onShortcut: sendShortcut });
   registerIpc();
@@ -735,6 +817,7 @@ if (!app.requestSingleInstanceLock()) {
     catalog?.stop();
     events?.add({ type: 'app-stop' });
     events?.close(); // grava o que faltava antes de fechar
+    userscripts?.flush(); // grava os dados dos scripts (GM_setValue) que ainda não foram para o disco
     mgr?.shutdown();
     idlelive?.stop();
   });
