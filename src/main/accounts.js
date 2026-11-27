@@ -7,6 +7,7 @@ const { isUserInput, isDangerousFile, shouldAllowPopup, shouldAllowDownload } = 
 const {
   CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, reconnectingTooLong, classifyPage, checkInternet,
 } = require('./recovery');
+const { AUTO_GAP_MS, ALL_GAP_MS, pickReturnUrl, staggerDelays, autoOptimizeReason } = require('./optimize');
 
 const PROBE_TIMEOUT_MS = 15000;
 const LOADING_GRACE_MS = 90000;
@@ -136,6 +137,8 @@ class AccountManager {
     this.timer = null;
     this.ticking = false;
     this.internetDown = false; // um aviso só para o app inteiro, não um por conta
+    this.nextOptimizeAt = 0; // otimização automática: uma por vez, com espaço entre elas
+    this.optimizeTimers = new Set(); // fila do "Otimizar todas"
   }
 
   // ---------- helpers ----------
@@ -185,6 +188,7 @@ class AccountManager {
           pausedUntil: 0, sessionTakenNotified: false,
           lastEvent: '', title: '', failures: [], gaveUp: false, retryAttempt: 0, retryTimer: null,
           crashTimer: null, downNotified: false, challengeSince: 0, challengeNotified: false, reconnectingSince: 0,
+          createdAt: 0, // quando o processo da conta nasceu (dormir/acordar e otimizar zeram)
         };
         this.rt.set(key, rt);
       }
@@ -204,7 +208,8 @@ class AccountManager {
     this.onChange();
   }
 
-  createView(rt, g) {
+  // `startUrl`: página em que a conta abre (ao otimizar, a que ela estava). Sem ela, o link do jogo.
+  createView(rt, g, startUrl) {
     const [gid, aid] = rt.key.split(':');
     const webPreferences = {
       partition: partitionFor(gid, aid),
@@ -228,6 +233,7 @@ class AccountManager {
     rt.fails = 0;
     rt.blank = 0;
     rt.baseUrl = g.url;
+    rt.createdAt = Date.now();
     rt.challengeSince = 0;
     rt.challengeNotified = false;
 
@@ -285,7 +291,7 @@ class AccountManager {
     if (g.url) {
       rt.status = 'loading';
       rt.loadStart = Date.now();
-      wc.loadURL(g.url).catch(() => {});
+      wc.loadURL(startUrl || g.url).catch(() => {});
     } else {
       rt.status = 'no-url';
     }
@@ -351,6 +357,7 @@ class AccountManager {
     rt.view = null;
     rt.visible = false;
     rt.mem = 0;
+    rt.createdAt = 0;
     rt.pausedUntil = 0;
     rt.sessionTakenNotified = false;
     rt.reconnectingSince = 0;
@@ -441,6 +448,9 @@ class AccountManager {
         rt.lastReload = 0;
         this.resetRecovery(rt); // recarregar à mão zera as quedas
         return this.reload(rt, null);
+      case 'optimize':
+        this.resetRecovery(rt); // otimizar à mão é escolha da pessoa, como recarregar
+        return this.optimize(rt, 'a pedido seu');
       case 'home':
         this.resetRecovery(rt);
         if (rt.view && g?.url) rt.view.webContents.loadURL(g.url).catch(() => {});
@@ -454,18 +464,66 @@ class AccountManager {
   gameAction(gameId, act) {
     const cfg = this.getConfig();
     const games = gameId ? cfg.games.filter((g) => g.id === gameId) : cfg.games;
+    const optimizeKeys = [];
     for (const g of games) {
       for (const a of g.accounts) {
         const key = `${g.id}:${a.id}`;
         if (act === 'sleep-all') a.sleeping = true;
         else if (act === 'wake-all') a.sleeping = false;
         else if (act === 'reload-all') this.action(key, 'reload');
+        else if (act === 'optimize-all' && !a.sleeping && this.rt.get(key)?.view) optimizeKeys.push(key);
       }
     }
-    if (act !== 'reload-all') {
+    if (act === 'optimize-all') this.optimizeAll(optimizeKeys);
+    else if (act !== 'reload-all') {
       this.saveConfig();
       this.sync();
     }
+  }
+
+  // Otimiza uma conta por vez, com espaço entre elas, para o PC não travar.
+  optimizeAll(keys) {
+    staggerDelays(keys.length, ALL_GAP_MS).forEach((delay, i) => {
+      const timer = setTimeout(() => {
+        this.optimizeTimers.delete(timer);
+        const rt = this.rt.get(keys[i]);
+        if (!rt?.view) return; // dormiu ou foi removida enquanto esperava
+        this.resetRecovery(rt);
+        this.optimize(rt, 'a pedido seu');
+      }, delay);
+      this.optimizeTimers.add(timer);
+    });
+  }
+
+  // Fecha a conta e abre de novo num processo novo (a sessão guarda o login) e volta
+  // na página em que ela estava. Devolve mais memória que recarregar, porque o
+  // processo antigo some de vez. Não conta como queda e não passa pelo intervalo
+  // mínimo de recarga.
+  optimize(rt, reason) {
+    const { g, a } = this.find(rt.key);
+    if (!g?.url || !a || a.sleeping || !rt.view) return;
+    const wc = rt.view.webContents;
+    let current = '';
+    try {
+      if (!wc.isDestroyed()) current = wc.getURL();
+    } catch {}
+    const url = pickReturnUrl(current, g.url, g.loggedOut?.urlIncludes);
+    const before = rt.mem;
+    const pidBefore = process.env.IDLEHUB_DEBUG && !wc.isDestroyed() ? wc.getOSProcessId() : 0;
+    this.destroyView(rt);
+    this.createView(rt, g, url);
+    if (process.env.IDLEHUB_DEBUG) {
+      rt.view.webContents.once('did-stop-loading', () =>
+        console.log(`[optimize] ${rt.key}: processo ${pidBefore} -> ${rt.view?.webContents.getOSProcessId()}`));
+    }
+    this.log(rt, `Otimizei a conta (${reason}): reabri num processo novo${before ? ` (estava com ${before} MB)` : ''}.`);
+  }
+
+  // Otimização do watchdog: confere a internet antes (reabrir sem rede só mostra erro).
+  async autoOptimize(rt, reason) {
+    const view = rt.view;
+    if (!(await this.internetUp()) || rt.view !== view) return;
+    this.optimize(rt, reason);
   }
 
   reload(rt, reason) {
@@ -786,8 +844,18 @@ class AccountManager {
       }
     }
 
-    const limit = Number(s.memoryLimitMB) || 0;
-    if (limit > 0 && rt.mem > limit) this.autoReload(rt, `passou de ${limit} MB de memória (${rt.mem} MB)`);
+    // Conta funcionando bem: por memória ou por tempo, reabre num processo novo (otimizar.js).
+    // Recarregar só a página não devolve a memória; por isso o limite agora otimiza.
+    // Só uma por vez no app todo (nextOptimizeAt), para não reabrir todas juntas.
+    if (rt.status !== 'ok') return;
+    const now = Date.now();
+    const why = autoOptimizeReason({
+      now, createdAt: rt.createdAt, everyHours: s.optimizeEveryHours, mem: rt.mem, limitMB: s.memoryLimitMB,
+      nextAllowedAt: this.nextOptimizeAt,
+    });
+    if (!why) return;
+    this.nextOptimizeAt = now + AUTO_GAP_MS;
+    return this.autoOptimize(rt, why);
   }
 
   updateMetrics(metrics) {
@@ -822,6 +890,8 @@ class AccountManager {
 
   shutdown() {
     clearInterval(this.timer);
+    for (const t of this.optimizeTimers) clearTimeout(t);
+    this.optimizeTimers.clear();
     for (const rt of this.rt.values()) this.destroyView(rt);
   }
 }

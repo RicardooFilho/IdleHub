@@ -186,6 +186,7 @@ function renderTop() {
       ${btn('game-wake', 'sun', 'Acordar todas', `data-id="${gid}"`)}
       ${btn('game-sleep', 'moon', 'Dormir todas', `data-id="${gid}"`)}
       ${btn('game-reload', 'rotate-right', 'Recarregar todas', `data-id="${gid}"`)}
+      ${btn('game-optimize', 'broom', 'Otimizar todas', `data-id="${gid}" title="Reabre cada conta num processo novo para liberar memória, uma por vez"`)}
       ${v.kind === 'game' ? `<wa-button size="s" appearance="plain" data-action="edit-game" data-id="${gid}"><wa-icon slot="start" name="pen"></wa-icon>Editar jogo</wa-button>` : ''}`;
   } else {
     const it = scope()[0];
@@ -194,6 +195,7 @@ function renderTop() {
       <wa-button size="s" appearance="plain" data-action="back"><wa-icon slot="start" name="arrow-left"></wa-icon>Voltar</wa-button>
       ${btn('home', 'house', 'Início', `data-key="${it.key}" title="Volta para o link inicial do jogo"`)}
       ${btn('reload', 'rotate-right', 'Recarregar', `data-key="${it.key}"`)}
+      ${btn('optimize', 'broom', 'Otimizar (liberar memória)', `data-key="${it.key}" title="Reabre a conta num processo novo, no mesmo login e na mesma página"`)}
       ${btn('devtools', 'magnifying-glass', 'Inspecionar', `data-key="${it.key}" title="Abre as ferramentas do Chrome para achar o seletor de um alerta"`)}
       ${btn('sleep', 'moon', 'Dormir', `data-key="${it.key}"`)}`;
   }
@@ -307,6 +309,7 @@ function tileHtml({ g, a, key }) {
           : `<div class="tile-actions">
         ${iconBtn('focus', 'expand', 'Expandir')}
         ${iconBtn('reload', 'rotate-right', 'Recarregar')}
+        ${mode === 'sleep' ? '' : iconBtn('optimize', 'broom', 'Otimizar (liberar memória)')}
         ${mode === 'sleep' ? iconBtn('wake', 'sun', 'Acordar') : iconBtn('sleep', 'moon', 'Dormir (libera memória)')}
       </div>`
       }
@@ -706,7 +709,8 @@ function settingsHtml(d) {
         <div class="form-row">
           ${num('watchdogIntervalSec', 'Verificar cada conta a cada (s)', '', 10, 600)}
           ${num('reloadAfterFailures', 'Recarregar após quantas falhas seguidas', '', 1, 10)}
-          ${num('memoryLimitMB', 'Recarregar se a conta passar de (MB)', '0 = sem limite', 0, 16000)}
+          ${num('memoryLimitMB', 'Otimizar se a conta passar de (MB)', '0 = sem limite. Reabre a conta num processo novo.', 0, 16000)}
+          ${num('optimizeEveryHours', 'Otimizar cada conta a cada (horas)', '0 = desligado. Libera memória sem perder o login.', 0, 168)}
         </div>
       </div>
       <div class="form-block">
@@ -864,19 +868,23 @@ async function onAction(act, el) {
       S.view = S.view.back || { kind: 'all' };
       return render();
     case 'reload':
+    case 'optimize':
     case 'home':
     case 'devtools':
     case 'sleep':
     case 'wake':
       await api.accountAction(key, act);
+      if (act === 'optimize') toast('Otimizando a conta…', 'info');
       if (act === 'sleep' || act === 'wake') await refreshConfig();
       if (act === 'sleep' && S.view.kind === 'focus') S.view = S.view.back || { kind: 'all' };
       return render();
     case 'game-wake':
     case 'game-sleep':
     case 'game-reload':
+    case 'game-optimize':
       el.loading = true;
-      await api.gameAction(id || null, { 'game-wake': 'wake-all', 'game-sleep': 'sleep-all', 'game-reload': 'reload-all' }[act]);
+      await api.gameAction(id || null, { 'game-wake': 'wake-all', 'game-sleep': 'sleep-all', 'game-reload': 'reload-all', 'game-optimize': 'optimize-all' }[act]);
+      if (act === 'game-optimize') toast('Otimizando as contas, uma por vez…', 'info');
       await refreshConfig();
       return render();
     case 'add-game':

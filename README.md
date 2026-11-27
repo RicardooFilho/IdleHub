@@ -61,8 +61,12 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 - **Logins:** cada conta tem sua própria pasta de cookies (`persist:acc-<jogo>-<conta>`).
   O painel não guarda senhas; você entra uma vez em cada conta e o login fica salvo.
 - **Watchdog:** a cada N segundos verifica cada conta. Recarrega se parar de responder,
-  ficar em branco, cair, ficar carregando demais ou passar do limite de memória
-  (no máximo 1 recarga por minuto por conta). Avisa quando a conta sai do login.
+  ficar em branco, cair ou ficar carregando demais (no máximo 1 recarga por minuto
+  por conta). Avisa quando a conta sai do login.
+- **Otimizar:** fecha a conta e abre de novo num processo novo, no mesmo login e na mesma
+  página, para liberar mais memória do que recarregar. À mão (**Otimizar** na conta, **Otimizar todas**
+  no jogo) ou sozinho: quando a conta passa do limite de memória e/ou a cada N horas
+  (**Configurações → Watchdog**), uma conta por vez.
 - **Alertas:** "Texto" (palavra aparece na página) ou "Número" (seletor CSS e/ou regex + condição).
   Use **🔍 Inspecionar** numa conta expandida para achar o seletor.
 - **Atalhos:** com a janela em foco, **Ctrl+1…9** abre a conta 1 a 9, **Ctrl+Tab** / **Ctrl+Shift+Tab** passam para a próxima/anterior, **F5** recarrega a conta aberta e **Ctrl+M** silencia tudo.

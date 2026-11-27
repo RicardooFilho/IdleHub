@@ -46,7 +46,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 | Uso | Como |
 |---|---|
 | Ação principal da janela ou do estado vazio | `variant="brand"` |
-| Ações do cabeçalho (Acordar todas, Recarregar…) e secundárias (Adicionar conta) | `variant="brand" appearance="outlined"` |
+| Ações do cabeçalho (Acordar todas, Recarregar, Otimizar…) e secundárias (Adicionar conta) | `variant="brand" appearance="outlined"` |
 | Ação discreta (Voltar, Cancelar, Editar jogo, Abrir no navegador) | `appearance="plain"` |
 | Botão só com ícone (topo das contas, remover) | `iconBtn()`: `appearance="plain"` + `<wa-icon label>` + `title` |
 
