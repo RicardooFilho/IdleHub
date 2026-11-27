@@ -655,6 +655,23 @@ class AccountManager {
     }
   }
 
+  // ---------- login do cofre (loginfill.js) ----------
+  // A página que a pessoa está vendo agora (o jogo ou a subpágina da frente), para o "Preencher login".
+  frontPage(key) {
+    const rt = this.rt.get(key);
+    if (!rt?.view) return null;
+    const front = rt.tabs.active !== GAME_TAB ? rt.subs.get(rt.tabs.active) : null;
+    const wc = (front?.view || rt.view).webContents;
+    if (wc.isDestroyed()) return null;
+    return { wc, url: wc.getURL(), gameUrl: this.find(key).g?.url || '' };
+  }
+
+  // Só o fato (sem usuário, senha ou endereço) fica na Atividade.
+  loginFilled(key) {
+    const rt = this.rt.get(key);
+    if (rt) this.log(rt, 'Preenchi o login do cofre (você pediu). Nada foi enviado.');
+  }
+
   // Conta removida de vez: também apaga o login salvo dela.
   async forget(gameId, accountId) {
     try {

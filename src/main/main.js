@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell, dialog, protocol, net, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shell, dialog, protocol, net, powerMonitor, clipboard } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const config = require('./config');
@@ -16,6 +16,8 @@ const { setupAway } = require('./away');
 const daily = require('./daily');
 const groups = require('./groups');
 const { ExtensionStore } = require('./extensions');
+const { createVault, createClipboardGuard } = require('./vault');
+const { canFill, runFill } = require('./loginfill');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -76,6 +78,8 @@ let idlelive = null;
 let panel = null;
 let remote = null;
 let extensions = null; // extensões do Chrome por conta (extensions.js)
+let vault = null; // cofre de logins (vault.js): usuário, senha e 2FA criptografados
+let clip = null; // copiar do cofre e limpar a área de transferência depois (vault.js)
 const tracker = new MetricsTracker(); // histórico de CPU e memória (metrics.js)
 let events = null;
 let away = null;
@@ -370,7 +374,10 @@ function registerIpc() {
     if (idx >= 0) {
       const removed = cfg.games[idx].accounts.filter((a) => !game.accounts.some((b) => b.id === a.id));
       cfg.games[idx] = game;
-      removed.forEach((a) => mgr.forget(game.id, a.id));
+      removed.forEach((a) => {
+        mgr.forget(game.id, a.id);
+        vault.remove(`${game.id}:${a.id}`); // o login do cofre sai junto com a conta
+      });
     } else {
       cfg.games.push(game);
     }
@@ -391,7 +398,10 @@ function registerIpc() {
     buildTrayMenu();
     mgr.sync();
     extensions.pruneAccounts();
-    g.accounts.forEach((a) => mgr.forget(g.id, a.id));
+    g.accounts.forEach((a) => {
+      mgr.forget(g.id, a.id);
+      vault.remove(`${g.id}:${a.id}`);
+    });
     return cfg;
   });
 
@@ -539,6 +549,71 @@ function registerIpc() {
     return r;
   });
 
+  // Cofre de logins (TAG-19). A interface só recebe o usuário e se tem senha, notas e 2FA; senha, notas e segredo do 2FA
+  // ficam aqui: ela só os vê pedindo "Mostrar" (por alguns segundos) ou "Copiar" (que nem passa pela interface).
+  const vaultState = () => ({ ...vault.status(), entries: vault.entries() });
+  const accountExists = (key) => groups.accountKeys(cfg).includes(key);
+  const text = (v) => (typeof v === 'string' ? v : v === null ? null : undefined);
+  const withState = (r) => ({ ...r, state: vaultState() });
+
+  ipcMain.handle('vault:state', () => vaultState());
+  ipcMain.handle('vault:unlock', async (_e, pw) => withState(await vault.unlock(String(pw ?? ''))));
+  ipcMain.handle('vault:lock', () => {
+    vault.lock();
+    return vaultState();
+  });
+  ipcMain.handle('vault:master', async (_e, op, a, b) => {
+    const [x, y] = [String(a ?? ''), String(b ?? '')];
+    const r = op === 'set' ? await vault.setMaster(x) : op === 'change' ? await vault.changeMaster(x, y) : op === 'remove' ? await vault.removeMaster(x) : { ok: false, error: 'Ação desconhecida.' };
+    return withState(r);
+  });
+  ipcMain.handle('vault:reset', () => withState(vault.reset()));
+  ipcMain.handle('vault:lock-minutes', (_e, n) => withState(vault.setLockMinutes(n)));
+  ipcMain.handle('vault:save', (_e, key, data, totpAck) => {
+    const k = String(key);
+    if (!accountExists(k)) return withState({ ok: false, error: 'Conta desconhecida.' });
+    const d = data && typeof data === 'object' ? data : {};
+    // Só os campos conhecidos: texto troca, null apaga, ausente mantém.
+    return withState(vault.save(k, { username: text(d.username), password: text(d.password), notes: text(d.notes), host: text(d.host), totp: text(d.totp) }, { totpAck: totpAck === true }));
+  });
+  ipcMain.handle('vault:delete', (_e, key) => withState(vault.remove(String(key))));
+
+  // Mostrar na tela por alguns segundos: só senha e notas, e só destrancado.
+  ipcMain.handle('vault:reveal', (_e, key, field) => {
+    if (field !== 'password' && field !== 'notes') return { ok: false, error: 'Campo desconhecido.' };
+    const r = vault.secretFor(String(key));
+    if (!r.ok) return r;
+    return r.secret[field] ? { ok: true, value: r.secret[field] } : { ok: false, error: field === 'notes' ? 'Não há notas salvas.' : 'Não há senha salva.' };
+  });
+  // Copiar: o valor vai do cofre direto para a área de transferência, sem passar pela interface, e é apagado dela depois de 30 s.
+  ipcMain.handle('vault:copy', (_e, key, field) => {
+    const r = field === 'totp' ? vault.totpCode(String(key)) : vault.secretFor(String(key));
+    if (!r.ok) return r;
+    const value = field === 'totp' ? r.code : field === 'username' || field === 'password' ? r.secret[field] : '';
+    if (!value) return { ok: false, error: 'Não há nada salvo para copiar.' };
+    return { ok: true, clearSec: Math.round(clip.copy(value) / 1000) };
+  });
+  ipcMain.handle('vault:totp', (_e, key) => {
+    const r = vault.totpCode(String(key));
+    return r.ok ? { ok: true, code: r.code, remaining: r.remaining, period: r.period } : r;
+  });
+
+  // Preencher login: só com o clique da pessoa, só em página https do site do jogo (ou do login salvo), nunca no Google, e nunca envia.
+  ipcMain.handle('vault:fill', async (_e, key) => {
+    const k = String(key);
+    const page = mgr.frontPage(k);
+    if (!page) return { ok: false, reason: 'closed' };
+    const meta = vault.meta(k);
+    if (!meta) return { ok: false, reason: 'empty' };
+    const can = canFill({ pageUrl: page.url, gameUrl: page.gameUrl, loginHost: meta.host });
+    if (!can.ok) return { ok: false, reason: can.reason };
+    const s = vault.secretFor(k);
+    if (!s.ok) return s.locked ? { ok: false, reason: 'locked' } : { ok: false, error: s.error };
+    const r = await runFill(page.wc, { origin: can.origin, username: s.secret.username, password: s.secret.password });
+    if (r.ok) mgr.loginFilled(k);
+    return r;
+  });
+
   ipcMain.handle('open:data', () => shell.openPath(app.getPath('userData')));
 }
 
@@ -610,6 +685,10 @@ function start() {
     fetch: (url, init) => net.fetch(url, init),
     chromeVersion: process.versions.chrome,
   });
+  vault = createVault({ onLockChange: () => win && !win.isDestroyed() && win.webContents.send('vault', { ...vault.status(), entries: vault.entries() }) });
+  clip = createClipboardGuard({ clipboard });
+  // Rede de segurança: login de conta que não existe mais. Com config vazia (arquivo ilegível), não mexe em nada.
+  if (cfg.games.length) vault.prune(groups.accountKeys(cfg));
   mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit, onShortcut: sendShortcut, events, extensions });
   idlelive = new IdleLive({ onChange: scheduleEmit, onReady: () => panel?.onServerReady() });
   panel = new PanelView({ win, idlelive, onShortcut: sendShortcut });
@@ -618,6 +697,9 @@ function start() {
   mgr.sync();
   mgr.startWatchdog();
   setupPower({ powerMonitor, mgr, net, events });
+  // PC bloqueado ou dormindo: o cofre com senha mestra tranca.
+  powerMonitor.on('lock-screen', () => vault.lock());
+  powerMonitor.on('suspend', () => vault.lock());
   away = setupAway({ powerMonitor, getHours: () => cfg.settings.awaySummaryHours, onBack });
   dailyJob = daily.setupDaily({
     getSettings: () => cfg.settings,
@@ -647,6 +729,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true;
     away?.dispose();
+    vault?.lock();
+    clip?.clearNow(); // senha ou código copiado não fica na área de transferência
     dailyJob?.dispose();
     catalog?.stop();
     events?.add({ type: 'app-stop' });

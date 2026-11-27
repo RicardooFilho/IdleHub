@@ -12,8 +12,9 @@ const S = {
   perf: null, // histórico de CPU e memória (IPC metrics:history), só carregado com a janela Desempenho aberta
   perfAt: 0,
   view: loadView(), // panel | all | game | focus
-  modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log' | 'away' | 'extensions' | 'ext-add' | 'ext-risk', draft, pickInfo? }
+  modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log' | 'away' | 'extensions' | 'ext-add' | 'ext-risk' | 'vault' | 'vault-edit', draft, pickInfo? }
   ext: [], // extensões instaladas (IPC ext:list)
+  vault: { available: false, hasMaster: false, locked: false, lockMinutes: 10, entries: {} }, // cofre de logins: só o usuário e se há senha/notas/2FA (IPC vault:state)
   reopen: null, // janela de Configurações a reabrir depois de ver o resumo do dia por ela
   awayPending: null, // resumo de "Enquanto você estava fora" esperando a janela aberta fechar
   asking: false,
@@ -199,6 +200,7 @@ function renderRail() {
     <div class="rail-spacer"></div>
     <button class="rail-btn" data-action="open-groups" title="Grupos e perfis: trocar de grupo de contas ou de arrumação">${icon('layer-group', 'Grupos e perfis')}</button>
     <button class="rail-btn" data-action="open-ext" title="Extensões do Chrome, por conta">${icon('puzzle-piece', 'Extensões')}</button>
+    <button class="rail-btn" data-action="open-vault" title="Cofre de logins: usuário e senha de cada conta, criptografados neste PC">${icon('key', 'Cofre de logins')}</button>
     <button class="rail-btn" data-action="open-perf" title="Desempenho: CPU e memória de cada conta">${icon('gauge-high', 'Desempenho')}</button>
     <button class="rail-btn" data-action="open-log" title="Atividade: recargas, logouts e alertas">${icon('bell', 'Atividade')}<wa-badge class="count" variant="danger" pill data-log-count hidden></wa-badge></button>
     <button class="rail-btn" data-action="open-settings" title="Configurações">${icon('gear', 'Configurações')}</button>`;
@@ -377,7 +379,9 @@ function tileHtml({ g, a, key }) {
       <span class="meta num tile-mem" data-mem></span>
       ${
         focus
-          ? ''
+          ? mode === 'live'
+            ? `<div class="tile-actions"><wa-button size="s" variant="brand" appearance="outlined" data-action="vault-fill" data-key="${key}" title="Preenche o usuário e a senha do cofre na página de login. Não envia nada: você confere e clica em Entrar.">${icon('right-to-bracket').replace('<wa-icon', '<wa-icon slot="start"')}Preencher login</wa-button></div>`
+            : ''
           : `<div class="tile-actions">
         ${iconBtn('focus', 'expand', 'Expandir')}
         ${iconBtn('reload', 'rotate-right', 'Recarregar')}
@@ -569,6 +573,8 @@ const MODAL_TITLES = {
   extensions: 'Extensões',
   'ext-add': 'Instalar extensão',
   'ext-risk': 'Revisar extensão',
+  vault: 'Cofre de logins',
+  'vault-edit': 'Login da conta',
 };
 
 function renderModal() {
@@ -601,7 +607,9 @@ function renderModalBody() {
     m.kind === 'away' ? awayHtml(m.draft) :
     m.kind === 'extensions' ? extensionsHtml() :
     m.kind === 'ext-add' ? extAddHtml() :
-    m.kind === 'ext-risk' ? extRiskHtml(m.draft) : '';
+    m.kind === 'ext-risk' ? extRiskHtml(m.draft) :
+    m.kind === 'vault' ? vaultListHtml(m.draft) :
+    m.kind === 'vault-edit' ? vaultEditHtml(m.draft) : '';
   const d = dlg();
   if (d._html === html) return;
   // Trocar o conteúdo zera a rolagem da janela: guarda e devolve (a lista de Desempenho se atualiza sozinha).
@@ -1376,6 +1384,322 @@ async function backToExtensions() {
   openModal('extensions');
 }
 
+
+// ----- cofre de logins (TAG-19)
+// Quem guarda, criptografa e preenche é o processo principal (src/main/vault.js e loginfill.js). Aqui só se desenha:
+// a tela recebe o usuário e se há senha, notas e 2FA; a senha só aparece por alguns segundos, quando a pessoa pede.
+const REVEAL_MS = 8000;
+
+const FILL_MSG = {
+  closed: 'A conta não está aberta. Acorde a conta e tente de novo.',
+  'not-https': 'O IdleHub só preenche páginas https.',
+  google: 'O login do Google o IdleHub não preenche: entre nele à mão.',
+  'other-site': 'Esta página não é do site do jogo nem do endereço de login que você salvou. Por segurança, não preenchi nada.',
+  origin: 'A página mudou enquanto eu preenchia. Clique em Preencher login de novo.',
+  none: 'Não achei os campos de usuário e senha nesta página. Vá até a tela de login e tente de novo.',
+  failed: 'Não consegui preencher esta página.',
+};
+
+const accountTitle = (key) => {
+  const [gid, aid] = key.split(':');
+  const g = gameById(gid);
+  const a = g?.accounts.find((x) => x.id === aid);
+  return g && a ? `${g.name} · ${a.name}` : key;
+};
+
+// Falha de uma ação do cofre: se trancou no meio do caminho, volta para a lista, onde se destranca.
+function vaultFail(r) {
+  if (r.state) S.vault = r.state;
+  if (r.locked || r.reason === 'locked') {
+    if (S.modal?.kind === 'vault-edit') S.modal = { kind: 'vault', draft: { op: null } };
+    S.modal ? renderModal() : openModal('vault', { op: null });
+    return toast(r.error || 'O cofre está trancado. Digite a senha mestra para continuar.');
+  }
+  toast(r.error || FILL_MSG[r.reason] || 'Não consegui fazer isso. Tente de novo.');
+}
+
+function vaultListHtml(d) {
+  const v = S.vault;
+  const locked = v.locked;
+  const op = d.op;
+  const pw = (f, label, hint = '') => `<wa-input size="s" type="password" label="${esc(label)}" ${hint ? `hint="${esc(hint)}"` : ''} data-f="${f}" autocomplete="off" password-toggle></wa-input>`;
+  let master;
+  if (!v.hasMaster) {
+    master = `<p class="meta">Sem senha mestra, o Windows protege os logins só para a sua conta de usuário. Com ela, o cofre tranca (sozinho depois de um tempo parado e quando o PC bloqueia) e só abre com a senha. <b>Não dá para recuperar uma senha mestra esquecida.</b></p>
+      ${op === 'set'
+        ? `<div class="form-row">${pw('vm-new', 'Senha mestra (pelo menos 8 caracteres)')}${pw('vm-new2', 'Repita a senha mestra')}</div>
+           <div class="form-row"><wa-button size="s" variant="brand" data-action="vault-master-set"><wa-icon slot="start" name="lock"></wa-icon>Criar senha mestra</wa-button><wa-button size="s" appearance="plain" data-action="vault-op" data-op="">Cancelar</wa-button></div>`
+        : `<div><wa-button size="s" variant="brand" appearance="outlined" data-action="vault-op" data-op="set" ${v.available ? '' : 'disabled'}><wa-icon slot="start" name="lock"></wa-icon>Criar senha mestra</wa-button></div>`}`;
+  } else if (locked) {
+    master = `<wa-callout variant="neutral" size="s"><wa-icon slot="icon" name="lock"></wa-icon>O cofre está <b>trancado</b>. Digite a senha mestra para ver, copiar, editar ou preencher.</wa-callout>
+      <div class="form-row">${pw('vm-unlock', 'Senha mestra')}<wa-button size="s" variant="brand" data-action="vault-unlock" style="flex:0 0 auto"><wa-icon slot="start" name="lock-open"></wa-icon>Destrancar</wa-button></div>`;
+  } else {
+    master = `<div class="form-row">
+        <wa-button size="s" variant="brand" appearance="outlined" data-action="vault-lock"><wa-icon slot="start" name="lock"></wa-icon>Trancar agora</wa-button>
+        <wa-button size="s" appearance="plain" data-action="vault-op" data-op="change">Trocar a senha mestra</wa-button>
+        <wa-button size="s" appearance="plain" data-action="vault-op" data-op="remove">Tirar a senha mestra</wa-button>
+      </div>
+      <wa-input size="s" type="number" min="0" max="480" label="Trancar sozinho depois de (minutos parado)" hint="0 = só tranca quando o PC bloqueia ou dorme." data-f="vm-minutes" value="${esc(v.lockMinutes)}"></wa-input>
+      ${op === 'change' ? `<div class="form-row">${pw('vm-current', 'Senha mestra de agora')}${pw('vm-new', 'Senha mestra nova (pelo menos 8)')}</div>
+        <div class="form-row"><wa-button size="s" variant="brand" data-action="vault-master-change">Trocar</wa-button><wa-button size="s" appearance="plain" data-action="vault-op" data-op="">Cancelar</wa-button></div>` : ''}
+      ${op === 'remove' ? `<div class="form-row">${pw('vm-current', 'Senha mestra de agora')}</div>
+        <p class="meta">Sem a senha mestra, o cofre abre sempre que o Windows deixa, e não tranca mais.</p>
+        <div class="form-row"><wa-button size="s" variant="brand" data-action="vault-master-remove">Tirar a senha mestra</wa-button><wa-button size="s" appearance="plain" data-action="vault-op" data-op="">Cancelar</wa-button></div>` : ''}`;
+  }
+
+  const rows = S.config.games
+    .map((g) => {
+      const accs = g.accounts
+        .map((a) => {
+          const key = keyOf(g, a);
+          const e = v.entries[key];
+          const bits = [];
+          if (e?.username) bits.push(esc(e.username));
+          if (e?.pw) bits.push('senha salva');
+          if (e?.totp) bits.push('2FA');
+          if (e?.host) bits.push(`login em ${esc(e.host)}`);
+          const meta = e ? (locked ? 'Login salvo (trancado)' : e.unreadable ? 'Não abre neste Windows: salve de novo' : bits.join(' · ')) : 'Nenhum login salvo';
+          return `<div class="arr-row"><span class="arr-name">${esc(a.name)}<span class="meta">${meta}</span></span>
+            <wa-button size="s" variant="brand" appearance="outlined" data-action="vault-edit" data-key="${esc(key)}" ${locked || !v.available ? 'disabled' : ''}><wa-icon slot="start" name="${e ? 'pen' : 'plus'}"></wa-icon>${e ? 'Editar' : 'Adicionar login'}</wa-button></div>`;
+        })
+        .join('');
+      return `<div class="member-game"><span class="pick-name"><span class="game-badge" style="background:${g.color}">${esc(g.short)}</span>${esc(g.name)}</span>${accs}</div>`;
+    })
+    .join('');
+
+  return `<div class="form">
+      ${v.available ? '' : `<wa-callout variant="warning" size="s"><wa-icon slot="icon" name="triangle-exclamation"></wa-icon>Este Windows não deixa o IdleHub guardar logins com segurança, então o cofre não funciona aqui.</wa-callout>`}
+      <wa-callout variant="neutral" size="s"><wa-icon slot="icon" name="circle-info"></wa-icon>
+        O cofre guarda o usuário e a senha de cada conta <b>criptografados neste PC</b> (o Windows protege o arquivo) e nunca manda nada para fora.
+        Para entrar: abra a conta e clique em <b>Preencher login</b>. O IdleHub só preenche, nunca envia o formulário, e não preenche o login do Google (entre nele à mão).</wa-callout>
+      <div class="form-block"><span class="form-label">Senha mestra (opcional)</span>${master}</div>
+      <div class="form-block"><span class="form-label">Logins das contas</span>${rows || '<p class="meta">Nenhuma conta ainda.</p>'}</div>
+    </div>
+    ${v.hasMaster ? `<wa-button slot="footer" appearance="plain" data-action="vault-reset" style="margin-right:auto"><wa-icon slot="start" name="trash"></wa-icon>Apagar o cofre (esqueci a senha)</wa-button>` : ''}
+    <wa-button slot="footer" variant="brand" data-dialog="close">Fechar</wa-button>`;
+}
+
+const TOTP_WARNING = `<wa-callout variant="warning" size="s"><wa-icon slot="icon" name="triangle-exclamation"></wa-icon>
+  <b>Atenção:</b> guardar a chave do 2FA no mesmo lugar da senha <b>enfraquece o 2FA</b>. Quem abrir este cofre passa a ter as duas coisas.
+  Só use em <b>contas de jogo</b>; nunca no e-mail, no Google ou em contas com dinheiro.</wa-callout>`;
+
+function vaultEditHtml(d) {
+  const secretHint = d.hasPw ? 'Senha salva (escondida). Digite outra para trocar.' : '';
+  const notes = d.hasNotes && !d.notesLoaded
+    ? `<div class="form-row"><wa-input size="s" label="Notas" placeholder="Notas salvas (escondidas)" disabled></wa-input><wa-button size="s" appearance="outlined" variant="brand" data-action="vault-reveal" data-field="notes" style="flex:0 0 auto"><wa-icon slot="start" name="eye"></wa-icon>Mostrar notas</wa-button></div>`
+    : `<wa-textarea size="s" label="Notas (opcional)" data-f="v-notes" rows="3" maxlength="2000" resize="auto" value="${esc(d.notes || '')}" hint="Também ficam criptografadas."></wa-textarea>`;
+  const totpBox = d.hasTotp
+    ? `<div class="totp-box"><span class="meta">Código agora</span><b class="totp-code num" id="totp-code">······</b><span class="meta num" id="totp-left"></span>
+        <wa-button size="s" variant="brand" appearance="outlined" data-action="vault-copy" data-field="totp"><wa-icon slot="start" name="copy"></wa-icon>Copiar</wa-button>
+        <wa-button size="s" appearance="plain" data-action="vault-totp-off"><wa-icon slot="start" name="trash"></wa-icon>Remover o 2FA</wa-button></div>`
+    : '';
+  const totpForm = d.totpMode
+    ? `${TOTP_WARNING}
+       <wa-input size="s" type="password" label="Segredo do 2FA ou link otpauth://" data-f="v-totp" autocomplete="off" password-toggle value="${esc(d.totpInput)}" hint="Está no QR code ao ligar o 2FA no site (“não consigo escanear”, “chave de configuração”)."></wa-input>
+       <wa-checkbox data-f="v-totp-ack" ${d.totpAck ? 'checked' : ''}>Entendi o risco e quero guardar o 2FA desta conta aqui</wa-checkbox>`
+    : `<wa-switch data-f="v-totp-on">${d.hasTotp ? 'Trocar o segredo do 2FA' : 'Guardar o código 2FA (TOTP) desta conta'}</wa-switch>`;
+
+  return `<div class="form">
+      <p class="meta" style="margin:0">${esc(d.title)}</p>
+      <div class="form-block">
+        <div class="form-row"><wa-input size="s" label="Usuário ou e-mail" data-f="v-username" autocomplete="off" value="${esc(d.username)}"></wa-input>
+          ${d.exists && d.username ? `<wa-button size="s" appearance="outlined" variant="brand" data-action="vault-copy" data-field="username" style="flex:0 0 auto"><wa-icon slot="start" name="copy"></wa-icon>Copiar</wa-button>` : ''}</div>
+        <div class="form-row"><wa-input size="s" type="password" label="Senha" data-f="v-password" autocomplete="off" password-toggle value="${esc(d.password)}" ${secretHint ? `placeholder="${esc(secretHint)}"` : ''}></wa-input>
+          ${d.hasPw ? `<wa-button size="s" appearance="outlined" variant="brand" data-action="vault-reveal" data-field="password" style="flex:0 0 auto"><wa-icon slot="start" name="eye"></wa-icon>Mostrar</wa-button>
+          <wa-button size="s" appearance="outlined" variant="brand" data-action="vault-copy" data-field="password" style="flex:0 0 auto"><wa-icon slot="start" name="copy"></wa-icon>Copiar</wa-button>` : ''}</div>
+        <code class="vault-reveal" id="vault-reveal" hidden></code>
+        ${notes}
+        <wa-input size="s" label="Endereço da tela de login (só se for de outro site)" data-f="v-host" placeholder="login.outrosite.com" value="${esc(d.host)}" hint="O IdleHub só preenche páginas https do site do jogo. Se o login do jogo fica em outro site, escreva aqui o endereço dele."></wa-input>
+      </div>
+      <div class="form-block"><span class="form-label">Código 2FA (opcional)</span>${totpBox}${totpForm}</div>
+    </div>
+    ${d.exists ? `<wa-button slot="footer" appearance="plain" data-action="vault-delete" style="margin-right:auto"><wa-icon slot="start" name="trash"></wa-icon>Remover login</wa-button>` : ''}
+    <wa-button slot="footer" appearance="plain" data-action="open-vault">Voltar</wa-button>
+    <wa-button slot="footer" variant="brand" data-action="vault-save">Salvar</wa-button>`;
+}
+
+// Guarda o que a pessoa digitou (a tela se refaz ao mostrar notas, trocar de passo etc.).
+function collectVault() {
+  const d = S.modal?.draft;
+  if (!d || S.modal.kind !== 'vault-edit') return;
+  const v = (f) => $(`#dialog [data-f="${f}"]`);
+  if (v('v-username')) d.username = v('v-username').value;
+  if (v('v-password')) d.password = v('v-password').value;
+  if (v('v-notes')) d.notes = v('v-notes').value;
+  if (v('v-host')) d.host = v('v-host').value;
+  if (v('v-totp')) d.totpInput = v('v-totp').value;
+  if (v('v-totp-ack')) d.totpAck = v('v-totp-ack').checked;
+}
+
+function openVaultEdit(key) {
+  const e = S.vault.entries[key];
+  openModal('vault-edit', {
+    key, title: accountTitle(key), exists: !!e, username: e?.username || '', password: '', hasPw: !!e?.pw, hasNotes: !!e?.notes, hasTotp: !!e?.totp,
+    host: e?.host || '', notes: '', notesLoaded: false, totpMode: false, totpInput: '', totpAck: false,
+  });
+  if (e?.totp) startTotpTicker(key);
+}
+
+// Mostra o código 2FA e a contagem; pede outro ao acabar o tempo. Só mexe nos textos (não refaz a janela).
+let totpTimer = null;
+function startTotpTicker(key) {
+  clearInterval(totpTimer);
+  let code = null;
+  const tick = async () => {
+    if (S.modal?.kind !== 'vault-edit' || S.modal.draft.key !== key || !$('#totp-code')) return clearInterval(totpTimer);
+    if (!code || Date.now() >= code.until) {
+      const r = await api.vaultTotp(key);
+      if (!r.ok) {
+        clearInterval(totpTimer);
+        return r.locked ? vaultFail(r) : null;
+      }
+      code = { text: r.code, until: Date.now() + r.remaining * 1000 };
+    }
+    const left = Math.max(0, Math.ceil((code.until - Date.now()) / 1000));
+    const el = $('#totp-code');
+    if (el) {
+      el.textContent = code.text.length === 6 ? `${code.text.slice(0, 3)} ${code.text.slice(3)}` : code.text;
+      $('#totp-left').textContent = `${left} s`;
+    }
+  };
+  tick();
+  totpTimer = setInterval(tick, 1000);
+}
+
+// Texto na tela por alguns segundos e depois some (ele só existe aqui, nunca fica guardado em S).
+let revealTimer = null;
+function showSecret(text) {
+  const box = $('#vault-reveal');
+  if (!box) return;
+  box.textContent = text;
+  box.hidden = false;
+  clearTimeout(revealTimer);
+  revealTimer = setTimeout(() => {
+    const b = $('#vault-reveal');
+    if (b) {
+      b.textContent = '';
+      b.hidden = true;
+    }
+  }, REVEAL_MS);
+}
+
+async function vaultAction(act, el) {
+  const val = (f) => String($(`#dialog [data-f="${f}"]`)?.value ?? '');
+  switch (act) {
+    case 'open-vault':
+      S.vault = await api.vaultState();
+      return openModal('vault', { op: null });
+    case 'vault-op':
+      S.modal.draft.op = el.dataset.op || null;
+      return renderModalBody();
+    case 'vault-unlock': {
+      el.loading = true;
+      const r = await api.vaultUnlock(val('vm-unlock'));
+      el.loading = false;
+      S.vault = r.state;
+      if (!r.ok) return toast(r.error);
+      return renderModalBody();
+    }
+    case 'vault-lock':
+      S.vault = await api.vaultLock();
+      return renderModalBody();
+    case 'vault-master-set':
+    case 'vault-master-change':
+    case 'vault-master-remove': {
+      const op = act.slice('vault-master-'.length);
+      if (op === 'set' && val('vm-new') !== val('vm-new2')) return toast('As duas senhas mestras não são iguais.');
+      el.loading = true;
+      const r = await api.vaultMaster(op, op === 'set' ? val('vm-new') : val('vm-current'), op === 'change' ? val('vm-new') : '');
+      el.loading = false;
+      S.vault = r.state;
+      if (!r.ok) return toast(r.error);
+      S.modal.draft.op = null;
+      renderModalBody();
+      return toast(op === 'set' ? 'Senha mestra criada. O cofre está aberto e tranca sozinho quando ficar parado.' : op === 'change' ? 'Senha mestra trocada.' : 'Senha mestra removida.', 'info');
+    }
+    case 'vault-reset': {
+      if (!(await ask({ title: 'Apagar o cofre inteiro?', text: 'Todos os logins guardados são apagados, e não dá para desfazer. Use só se esqueceu a senha mestra: depois é só guardar os logins de novo.', ok: 'Apagar o cofre', danger: true }))) return;
+      const r = await api.vaultReset();
+      S.vault = r.state;
+      if (!r.ok) return toast(r.error);
+      S.modal = { kind: 'vault', draft: { op: null } };
+      renderModalBody();
+      return toast('Cofre apagado.', 'info');
+    }
+    case 'vault-edit':
+      return openVaultEdit(el.dataset.key);
+    case 'vault-reveal': {
+      collectVault();
+      const field = el.dataset.field;
+      const r = await api.vaultReveal(S.modal.draft.key, field);
+      if (!r.ok) return vaultFail(r);
+      if (field === 'notes') {
+        Object.assign(S.modal.draft, { notes: r.value, notesLoaded: true });
+        return renderModalBody();
+      }
+      return showSecret(r.value);
+    }
+    case 'vault-copy': {
+      const r = await api.vaultCopy(S.modal.draft.key, el.dataset.field);
+      if (!r.ok) return vaultFail(r);
+      const what = { username: 'Usuário', password: 'Senha', totp: 'Código' }[el.dataset.field];
+      return toast(`${what} copiado. Some da área de transferência em ${r.clearSec} segundos.`, 'info');
+    }
+    case 'vault-save': {
+      collectVault();
+      const d = S.modal.draft;
+      const data = { username: d.username.trim(), host: d.host.trim() };
+      if (d.password) data.password = d.password;
+      if (!d.hasNotes || d.notesLoaded) data.notes = d.notes;
+      const withTotp = d.totpMode && d.totpInput.trim();
+      if (withTotp) data.totp = d.totpInput;
+      if (withTotp && !d.totpAck) return toast('Marque que você entendeu o risco do 2FA para guardar o código.');
+      el.loading = true;
+      const r = await api.vaultSave(d.key, data, !!d.totpAck);
+      el.loading = false;
+      if (r.state) S.vault = r.state;
+      if (!r.ok) return vaultFail(r);
+      S.modal = { kind: 'vault', draft: { op: null } };
+      renderModal();
+      return toast('Login salvo, criptografado neste PC.', 'info');
+    }
+    case 'vault-totp-off': {
+      if (!(await ask({ title: 'Remover o 2FA guardado?', text: 'Só o segredo do 2FA é apagado daqui. O 2FA continua ligado no site: você passa a usar o app de códigos de sempre.', ok: 'Remover', danger: true }))) return;
+      const r = await api.vaultSave(S.modal.draft.key, { totp: null }, false);
+      if (r.state) S.vault = r.state;
+      if (!r.ok) return vaultFail(r);
+      clearInterval(totpTimer);
+      openVaultEdit(S.modal.draft.key);
+      return toast('2FA removido do cofre.', 'info');
+    }
+    case 'vault-delete': {
+      const d = S.modal.draft;
+      if (!(await ask({ title: `Remover o login de ${d.title}?`, text: 'Só o login guardado no cofre é apagado. A conta e o login dela no jogo continuam como estão.', ok: 'Remover', danger: true }))) return;
+      const r = await api.vaultDelete(d.key);
+      if (r.state) S.vault = r.state;
+      if (!r.ok) return vaultFail(r);
+      S.modal = { kind: 'vault', draft: { op: null } };
+      renderModal();
+      return toast('Login removido do cofre.', 'info');
+    }
+    case 'vault-fill': {
+      const key = el.dataset.key;
+      el.loading = true;
+      const r = await api.vaultFill(key);
+      el.loading = false;
+      if (r.ok) {
+        return toast(r.user && r.pass ? 'Login preenchido. Confira e clique em Entrar.' : r.user ? 'Usuário preenchido. Quando a senha aparecer, clique em Preencher login de novo.' : 'Senha preenchida. Confira e clique em Entrar.', 'info');
+      }
+      if (r.reason === 'empty') {
+        S.vault = await api.vaultState();
+        openVaultEdit(key);
+        return toast('Esta conta ainda não tem login no cofre. Guarde o usuário e a senha aqui.', 'info');
+      }
+      return vaultFail(r);
+    }
+  }
+}
+
 // ----- atividade
 function logHtml() {
   const items = [...S.runtime.log].reverse();
@@ -1693,6 +2017,23 @@ async function onAction(act, el) {
     case 'open-data':
       return api.openData();
 
+    case 'open-vault':
+    case 'vault-op':
+    case 'vault-unlock':
+    case 'vault-lock':
+    case 'vault-master-set':
+    case 'vault-master-change':
+    case 'vault-master-remove':
+    case 'vault-reset':
+    case 'vault-edit':
+    case 'vault-reveal':
+    case 'vault-copy':
+    case 'vault-save':
+    case 'vault-totp-off':
+    case 'vault-delete':
+    case 'vault-fill':
+      return vaultAction(act, el);
+
     case 'open-ext':
     case 'ext-cancel': {
       if (act === 'ext-cancel') await api.extDiscard(S.modal.draft.token);
@@ -1965,6 +2306,7 @@ async function init() {
   Object.assign(S, { config: st.config, presets: st.presets, runtime: st.runtime, version: st.version, openAtLogin: st.openAtLogin, rev: st.rev, groupColors: st.groupColors });
   if (st.idlelive) S.idlelive = st.idlelive;
   S.ext = await api.extensionsList();
+  S.vault = await api.vaultState();
   // Espera a janela (já na página) ficar pronta, para as boas-vindas abrirem. O carregador do Web Awesome
   // só busca um componente quando ele aparece na página, então não dá para esperar os que ainda não foram desenhados.
   await Promise.race([customElements.whenDefined('wa-dialog'), new Promise((r) => setTimeout(r, 2000))]);
@@ -1984,6 +2326,16 @@ async function init() {
     S.presets = d.presets;
     S.config = d.config;
     if (!S.modal && !S.asking) render();
+  });
+  // O cofre trancou (tempo parado, PC bloqueado ou dormindo): a janela aberta volta para a lista, onde se destranca.
+  api.onVault((d) => {
+    S.vault = d;
+    const kind = S.modal?.kind;
+    if (kind === 'vault-edit' && d.locked) {
+      S.modal = { kind: 'vault', draft: { op: null } };
+      renderModal();
+      toast('O cofre trancou. Digite a senha mestra para continuar.', 'info');
+    } else if (kind === 'vault') renderModalBody();
   });
   api.onFocusAccount(focusAccount);
   api.onShortcut(onShortcut);
@@ -2013,6 +2365,17 @@ async function init() {
       return toast(asleep ? 'Pronto. Vale quando você acordar a conta.' : `${sw.checked ? 'Ligada' : 'Desligada'}. A conta está recarregando.`, 'info');
     }
     const f = e.target.dataset?.f || '';
+    // Cofre: ligar o 2FA mostra o aviso e o campo do segredo; o tempo de trancar vale na hora.
+    if (S.modal?.kind === 'vault-edit' && f === 'v-totp-on' && e.target.checked) {
+      collectVault();
+      S.modal.draft.totpMode = true;
+      return renderModalBody();
+    }
+    if (S.modal?.kind === 'vault' && f === 'vm-minutes') {
+      const r = await api.vaultLockMinutes(Number(e.target.value));
+      if (r.state) S.vault = r.state;
+      return r.ok ? toast(r.lockMinutes ? `O cofre tranca sozinho depois de ${r.lockMinutes} min parado.` : 'O cofre só tranca quando o PC bloquear ou dormir.', 'info') : toast(r.error);
+    }
     // Tipo/condição do alerta liga e desliga os campos ao lado.
     if (S.modal?.kind === 'game' && /^w-(kind|op)$/.test(f)) {
       collectGame();
@@ -2021,6 +2384,7 @@ async function init() {
     if (S.modal?.kind === 'onboard' && f === 'on') e.target.closest('.pick').classList.toggle('off', !e.target.checked);
   });
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target?.dataset?.f === 'vm-unlock') return $('#dialog [data-action="vault-unlock"]')?.click();
     if (e.key === 'Escape' && S.picking) return api.pickCancel(); // com o foco na interface; dentro do jogo quem trata é a página
     if (e.key === 'Escape' && !S.modal && !S.asking && S.view.kind === 'focus') onAction('back', document.body);
   });
