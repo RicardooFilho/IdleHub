@@ -135,6 +135,38 @@ body { font-family: 'Montserrat', system-ui, sans-serif; color: var(--wa-color-t
 .empty wa-button { margin-top: var(--wa-space-xs); }
 .tile .empty { position: absolute; inset: 0; }
 
+/* Abas da conta (jogo + subpáginas). 28px: mais baixa que o topo (36px) para sobrar espaço ao jogo. */
+.sub-tabs {
+  height: 28px; flex: none; display: flex; align-items: stretch; gap: var(--wa-space-3xs); min-width: 0; overflow: hidden;
+  padding: 0 var(--wa-space-xs); border-bottom: 1px solid var(--wa-color-surface-border); background: var(--wa-color-surface-lowered);
+}
+.sub-tab { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; border-bottom: 2px solid transparent; }
+.sub-tab:hover { background: var(--wa-color-neutral-fill-quiet); }
+.sub-tab.active { background: var(--brand-soft); border-bottom-color: var(--brand); }
+.sub-tab-btn, .sub-close {
+  border: 0; background: transparent; color: var(--wa-color-text-quiet); font: inherit; font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; gap: var(--wa-space-2xs); white-space: nowrap; min-width: 0; height: 100%;
+}
+.sub-tab-btn { padding: 0 var(--wa-space-xs); overflow: hidden; text-overflow: ellipsis; }
+.sub-tab.open .sub-tab-btn { padding-right: var(--wa-space-3xs); }
+.sub-tab.active .sub-tab-btn { color: var(--wa-color-text-normal); font-weight: 600; }
+.sub-close { padding: 0 var(--wa-space-xs) 0 var(--wa-space-3xs); font-size: 10px; }
+.sub-close:hover { color: var(--wa-color-text-normal); }
+.sub-tab:not(.open) .sub-close { display: none; } /* ainda não carregou: não há o que fechar */
+.sub-tab-btn:focus-visible, .sub-close:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+/* Subpáginas na janela do jogo: a lista abre embaixo do nome da conta. */
+.acc-block { display: flex; flex-direction: column; gap: var(--wa-space-xs); }
+.sub-edit {
+  display: flex; flex-direction: column; gap: var(--wa-space-xs); margin-left: var(--wa-space-m);
+  padding: var(--wa-space-s); border: 1px solid var(--wa-color-surface-border); border-radius: 8px; background: var(--wa-color-surface-lowered);
+}
+.sub-edit p { margin: 0; }
+.sub-row { display: flex; gap: var(--wa-space-xs); align-items: center; }
+.sub-row wa-input:first-child { flex: 0 0 160px; } /* 160px: cabe um nome de aba de 20 letras */
+.sub-row wa-input:nth-child(2) { flex: 1; min-width: 0; }
+.sub-edit-actions { display: flex; gap: var(--wa-space-xs); align-items: center; flex-wrap: wrap; }
+
 /* Página do Painel (IdleLive): a página em si é desenhada por cima deste espaço. */
 .panel-host { min-width: 0; min-height: 0; border-radius: 10px; background: var(--wa-color-surface-lowered); }
 .panel-log {

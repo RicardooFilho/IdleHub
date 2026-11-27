@@ -88,6 +88,12 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 - A lista aparece nas **Configurações** (só leitura): teclas em `<kbd>` à esquerda, o que fazem à direita (`.shortcuts`). Atalho novo entra em `matchShortcut()`, no teste dele e nessa lista.
 - Com janela ou confirmação aberta (`S.modal`/`S.asking`), os atalhos são ignorados.
 
+### Abas da conta (subpáginas)
+
+- Conta com subpáginas ganha uma faixa de 28px entre o topo e o jogo (`.sub-tabs`): a aba **Jogo** (`gamepad`) e uma aba por subpágina (`.sub-tab`, texto de 12px, sem botões do Web Awesome para caber no mosaico). A aba da frente fica com `--brand-soft` e linha `--brand` embaixo. A aba de uma subpágina já carregada ganha um **×** (`xmark`, `.sub-close`) que fecha a página.
+- A subpágina é desenhada no mesmo espaço `[data-live]` do jogo, por cima dele; o jogo segue rodando por baixo. Ela se esconde com janelas e confirmações abertas, como as contas.
+- Na janela do jogo, o botão **Subpáginas** (`globe`) de cada conta abre a lista (`.sub-edit`): nome da aba, link e remover (`trash`), mais **Adicionar subpágina** e **Copiar para as outras contas** (`clone`).
+
 ### Estados
 
 - Lista vazia, conta dormindo, jogo sem link e Painel abrindo: `<div class="empty">` com ícone, `h2`, uma frase que diz o que fazer e o botão da ação.
@@ -117,6 +123,9 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `pen` | editar jogo |
 | `trash` | remover |
 | `link` | falta o link do jogo |
+| `globe` | subpáginas da conta (outros sites do jogo) |
+| `xmark` | fechar uma subpágina |
+| `clone` | copiar as subpáginas para as outras contas |
 | `bell` | atividade (recargas, logouts, alertas) |
 | `gear` | configurações |
 | `layer-group` | grupos e perfis de arrumação |

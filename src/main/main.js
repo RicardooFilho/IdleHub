@@ -335,7 +335,11 @@ function registerIpc() {
     return result;
   });
   ipcMain.handle('account:action', (_e, key, action) => mgr.action(String(key), String(action)));
-  ipcMain.handle('game:action', (_e, gameId, action) => mgr.gameAction(gameId || null, String(action)));
+  // Subpáginas: trocar de aba (jogo ou subpágina), fechar a view de uma e recarregar a que está na frente.
+  ipcMain.handle('subpage:select', (_e, key, id) => mgr.selectTab(String(key), String(id)));
+  ipcMain.handle('subpage:close', (_e, key, id) => mgr.closeSub(String(key), String(id)));
+  ipcMain.handle('subpage:reload', (_e, key, id) => mgr.reloadSub(String(key), String(id)));
+  ipcMain.handle('game:action',(_e, gameId, action) => mgr.gameAction(gameId || null, String(action)));
 
   ipcMain.handle('config:onboard', (_e, selections) => {
     for (const sel of selections || []) {

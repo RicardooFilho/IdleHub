@@ -11,6 +11,7 @@ const {
 const { AUTO_GAP_MS, ALL_GAP_MS, pickReturnUrl, staggerDelays, autoOptimizeReason } = require('./optimize');
 const { WAKE_GAP_MS } = require('./groups');
 const { ISSUE_TYPES } = require('./events');
+const { GAME_TAB, initialTabs, selectTab, closeTab, pruneTabs } = require('./subpages');
 
 const PROBE_TIMEOUT_MS = 15000;
 const LOADING_GRACE_MS = 90000;
@@ -202,6 +203,8 @@ class AccountManager {
           lastEvent: '', title: '', failures: [], gaveUp: false, retryAttempt: 0, retryTimer: null,
           crashTimer: null, downNotified: false, challengeSince: 0, challengeNotified: false, reconnectingSince: 0,
           createdAt: 0, // quando o processo da conta nasceu (dormir/acordar e otimizar zeram)
+          tabs: initialTabs(), // subpáginas (subpages.js): qual aba aparece e quais já foram abertas
+          subs: new Map(), // id da subpágina -> { id, url, view, visible, zoom, muted, lastInputAt }
         };
         this.rt.set(key, rt);
       }
@@ -218,6 +221,7 @@ class AccountManager {
         if (g.url) rt.view.webContents.loadURL(g.url).catch(() => {});
         else rt.status = 'no-url';
       }
+      if (rt.view) this.syncSubs(rt, a);
     }
     this.applyLayout();
     this.onChange();
@@ -368,6 +372,7 @@ class AccountManager {
     clearTimeout(rt.retryTimer);
     clearTimeout(rt.crashTimer);
     rt.retryTimer = rt.crashTimer = null;
+    this.destroySubs(rt); // dormir, otimizar e fechar a conta também fecham as subpáginas
     if (!rt.view) return;
     const view = rt.view;
     rt.view = null;
@@ -383,6 +388,106 @@ class AccountManager {
     try {
       if (!view.webContents.isDestroyed()) view.webContents.close();
     } catch {}
+  }
+
+  // ---------- subpáginas ----------
+  // Cada subpágina é uma view própria na MESMA sessão da conta (mesmo login), criada só no primeiro
+  // clique. Fica por cima do jogo, no mesmo espaço: o jogo continua desenhado e rodando por baixo
+  // (nada de esconder ou parar), então o tempo dele não muda.
+  createSub(rt, cfg) {
+    const [gid, aid] = rt.key.split(':');
+    const webPreferences = {
+      partition: partitionFor(gid, aid),
+      // Mesmo preload do jogo: dá o login do Google e o login sem chave de acesso. O limitador de FPS
+      // só age se alguém o ligar, e nada disso expõe algo para a página.
+      preload: path.join(__dirname, '../preload/game.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      spellcheck: false,
+    };
+    const view = new WebContentsView({ webPreferences });
+    view.setBackgroundColor('#0f1117');
+    view.setVisible(false);
+    this.win.contentView.addChildView(view);
+    const sub = { id: cfg.id, url: cfg.url, view, visible: false, zoom: null, muted: undefined, lastInputAt: 0 };
+    rt.subs.set(cfg.id, sub);
+
+    const wc = view.webContents;
+    attachShortcuts(wc, (s) => this.onShortcut({ ...s, from: rt.key }));
+    this.guardWindows(rt, wc, sub, webPreferences);
+    this.guardDownloads(wc.session, rt.key);
+    wc.on('did-stop-loading', () => {
+      sub.zoom = null;
+      this.applyLayout();
+    });
+    wc.on('render-process-gone', () => {
+      this.destroySub(rt, cfg.id); // subpágina que travou fecha; o jogo segue
+      this.applyLayout();
+      this.onChange();
+    });
+    wc.loadURL(cfg.url).catch(() => {});
+  }
+
+  destroySub(rt, id) {
+    const sub = rt.subs.get(id);
+    rt.subs.delete(id);
+    rt.tabs = closeTab(rt.tabs, id);
+    if (!sub) return;
+    try {
+      this.win.contentView.removeChildView(sub.view);
+    } catch {}
+    try {
+      if (!sub.view.webContents.isDestroyed()) sub.view.webContents.close();
+    } catch {}
+  }
+
+  destroySubs(rt) {
+    for (const id of [...rt.subs.keys()]) this.destroySub(rt, id);
+    rt.tabs = initialTabs();
+  }
+
+  // Subpáginas tiradas da conta, ou com o link trocado, fecham.
+  syncSubs(rt, a) {
+    const list = a.subpages || [];
+    for (const [id, sub] of rt.subs) {
+      const cfg = list.find((s) => s.id === id);
+      if (!cfg || cfg.url !== sub.url) this.destroySub(rt, id);
+    }
+    rt.tabs = pruneTabs(rt.tabs, list);
+  }
+
+  tabState(rt) {
+    return { tab: rt.tabs.active, openTabs: rt.tabs.open };
+  }
+
+  // Aba do jogo ou de uma subpágina (cria a view na primeira vez). Devolve o estado das abas.
+  selectTab(key, id) {
+    const rt = this.rt.get(key);
+    const { a } = this.find(key);
+    if (!rt?.view || !a) return null;
+    const list = a.subpages || [];
+    rt.tabs = selectTab(rt.tabs, id, list);
+    const cfg = rt.tabs.active === GAME_TAB ? null : list.find((s) => s.id === rt.tabs.active);
+    if (cfg && !rt.subs.has(cfg.id)) this.createSub(rt, cfg);
+    this.applyLayout();
+    this.onChange();
+    return this.tabState(rt);
+  }
+
+  // Fecha a view da subpágina (devolve a memória); a aba continua lá e abre de novo no próximo clique.
+  closeSub(key, id) {
+    const rt = this.rt.get(key);
+    if (!rt) return null;
+    this.destroySub(rt, id);
+    this.applyLayout();
+    this.onChange();
+    return this.tabState(rt);
+  }
+
+  reloadSub(key, id) {
+    const wc = this.rt.get(key)?.subs.get(id)?.view.webContents;
+    if (wc && !wc.isDestroyed()) wc.reload();
   }
 
   // Conta removida de vez: também apaga o login salvo dela.
@@ -434,11 +539,40 @@ class AccountManager {
         rt.fps = fps;
         wc.executeJavaScript(`window.__idleHubSetFps && window.__idleHubSetFps(${Number(fps) || 0})`, true).catch(() => {});
       }
-      const muted = s.muteAll || rt.mode !== 'focus';
+      // Subpágina na frente: só ela toca. O jogo segue rodando por baixo, no mesmo lugar.
+      const front = t && rt.tabs.active !== GAME_TAB ? rt.subs.get(rt.tabs.active) : null;
+      const muted = s.muteAll || rt.mode !== 'focus' || !!front;
       if (rt.muted !== muted) {
         rt.muted = muted;
         wc.setAudioMuted(muted);
       }
+      for (const sub of rt.subs.values()) this.layoutSub(rt, sub, sub === front ? t : null, s);
+    }
+  }
+
+  // `t`: o espaço da conta, se esta subpágina é a que aparece; senão fica escondida (continua carregada).
+  layoutSub(rt, sub, t, s) {
+    const wc = sub.view.webContents;
+    if (wc.isDestroyed()) return;
+    if (t) {
+      sub.view.setBounds({ x: Math.round(t.x), y: Math.round(t.y), width: Math.max(1, Math.round(t.w)), height: Math.max(1, Math.round(t.h)) });
+      if (sub.zoom !== t.zoom) {
+        sub.zoom = t.zoom;
+        wc.setZoomFactor(t.zoom);
+      }
+      if (!sub.visible) {
+        this.win.contentView.addChildView(sub.view); // de novo = vai para o topo, acima do jogo
+        sub.view.setVisible(true);
+        sub.visible = true;
+      }
+    } else if (sub.visible) {
+      sub.view.setVisible(false);
+      sub.visible = false;
+    }
+    const muted = !t || s.muteAll || rt.mode !== 'focus';
+    if (sub.muted !== muted) {
+      sub.muted = muted;
+      wc.setAudioMuted(muted);
     }
   }
 
@@ -927,9 +1061,21 @@ class AccountManager {
         rt.cpu = 0;
         continue;
       }
-      const m = byPid.get(wc.getOSProcessId());
+      const pid = wc.getOSProcessId();
+      const m = byPid.get(pid);
       rt.mem = m ? Math.round(m.memory.workingSetSize / 1024) : 0;
       rt.cpu = m ? normalizeCpu(m.cpu?.percentUsage) : 0;
+      // Subpáginas abertas pesam na conta (cada processo conta uma vez só).
+      const seen = new Set([pid]);
+      for (const sub of rt.subs.values()) {
+        if (sub.view.webContents.isDestroyed()) continue;
+        const sp = sub.view.webContents.getOSProcessId();
+        const sm = seen.has(sp) ? null : byPid.get(sp);
+        seen.add(sp);
+        if (!sm) continue;
+        rt.mem += Math.round(sm.memory.workingSetSize / 1024);
+        rt.cpu += normalizeCpu(sm.cpu?.percentUsage);
+      }
     }
     if (!tracker) return;
     const accounts = [...this.rt.values()].map((rt) => ({ key: rt.key, gameId: rt.key.split(':')[0], cpu: rt.cpu || 0, mem: rt.mem }));
@@ -952,6 +1098,7 @@ class AccountManager {
         reloads: rt.reloads,
         lastEvent: rt.lastEvent,
         title: rt.title,
+        ...this.tabState(rt),
       };
     }
     return { accounts, log: this.logs.slice(-150) };

@@ -56,6 +56,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Testes (`node:test`) | `test/` |
 | Inicia, vigia e reinicia o IdleLive; importa dados do IdleLive avulso | `src/main/idlelive.js` |
 | Página do IdleLive dentro da janela | `src/main/panel.js` |
+| Subpáginas da conta (validação e abas) | `src/main/subpages.js` |
 | Atalhos de teclado (lidos também dentro das contas e do Painel) | `src/main/shortcuts.js` |
 | Histórico de CPU e memória (última hora) e regra de conta "pesada" | `src/main/metrics.js` |
 | Registro de eventos das contas (`%APPDATA%/IdleHub/events.jsonl`) e resumo de um período | `src/main/events.js` |
@@ -75,6 +76,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
   (**Configurações → Watchdog**), uma conta por vez.
 - **Alertas:** "Texto" (palavra aparece na página) ou "Número" (seletor CSS e/ou regex + condição).
   Use **🔍 Inspecionar** numa conta expandida para achar o seletor.
+- **Subpáginas:** outros sites do jogo (votação, wiki, loja) abertos no **mesmo login** da conta, como abas acima do jogo. Em **Editar jogo**, clique em **Subpáginas** na conta, dê um nome e um link `https` (até 6 por conta). Cada uma só carrega quando você clica nela, o **×** da aba fecha e devolve a memória, e o jogo continua rodando por baixo. Dormir ou otimizar a conta fecha as subpáginas.
 - **Atalhos:** com a janela em foco, **Ctrl+1…9** abre a conta 1 a 9, **Ctrl+Tab** / **Ctrl+Shift+Tab** passam para a próxima/anterior, **F5** recarrega a conta aberta e **Ctrl+M** silencia tudo.
   A lista também está em Configurações.
 - **Grupos e perfis:** o botão das camadas na barra lateral. Um **grupo** junta contas de qualquer jogo (com nome e cor): **Trocar para este grupo** acorda elas e põe todas as outras para dormir. Um **perfil** guarda a arrumação de agora (contas acordadas, tamanho do jogo no mosaico e som) e volta a ela com **Aplicar**, ou pelo menu **Perfis** do ícone perto do relógio. As contas acordam uma por vez (3 s entre elas). Ficam no `config.json` (`groups` e `profiles`), só neste PC.

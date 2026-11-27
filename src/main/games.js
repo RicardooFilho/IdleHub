@@ -3,6 +3,7 @@
 // tudo pode ser editado no app (link, contas, detecção de logout e alertas).
 const crypto = require('crypto');
 const { validateCatalog, toPreset, baseOf, SYNCED_FIELDS } = require('./catalog');
+const { sanitizeSubpages } = require('./subpages');
 
 const newId = () => crypto.randomUUID().replace(/-/g, '').slice(0, 10);
 
@@ -56,6 +57,7 @@ function sanitizeGame(g) {
       id: str(a.id, 40) || newId(),
       name: str(a.name, 30) || `Conta ${i + 1}`,
       sleeping: !!a.sleeping,
+      subpages: sanitizeSubpages(a.subpages),
     })),
     loggedOut: {
       urlIncludes: list(g.loggedOut?.urlIncludes),
