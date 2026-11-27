@@ -2,6 +2,9 @@
 // sessão (cookies/login separados), mais o watchdog e os alertas.
 const { WebContentsView, session } = require('electron');
 const path = require('path');
+const {
+  CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, classifyPage, checkInternet,
+} = require('./recovery');
 
 const PROBE_TIMEOUT_MS = 15000;
 const LOADING_GRACE_MS = 90000;
@@ -92,7 +95,8 @@ function probeInPage(a) {
     return { id: w.id, found: v != null, value: v };
   });
 
-  return { url: location.href, blank, loggedOut, watchers };
+  // title e o começo do texto servem para reconhecer telas do Cloudflare e erros 52x (recovery.js).
+  return { url: location.href, blank, loggedOut, watchers, title: document.title || '', head: text.slice(0, 1500), len: text.length };
 }
 
 function withTimeout(p, ms) {
@@ -117,6 +121,7 @@ class AccountManager {
     this.logs = [];
     this.timer = null;
     this.ticking = false;
+    this.internetDown = false; // um aviso só para o app inteiro, não um por conta
   }
 
   // ---------- helpers ----------
@@ -133,7 +138,7 @@ class AccountManager {
   }
 
   log(rt, text, level = 'info') {
-    this.logs.push({ t: Date.now(), key: rt?.key || null, who: rt ? this.label(rt) : 'Painel', text, level });
+    this.logs.push({ t: Date.now(), key: rt?.key || null, who: rt ? this.label(rt) : 'IdleHub', text, level });
     if (this.logs.length > 300) this.logs.splice(0, this.logs.length - 300);
     rt && (rt.lastEvent = text);
     this.onChange();
@@ -163,12 +168,14 @@ class AccountManager {
           key, view: null, status: 'sleeping', fails: 0, blank: 0, mem: 0, reloads: 0,
           lastReload: 0, values: {}, trig: {}, baseUrl: null, zoom: null, fps: undefined,
           muted: undefined, visible: false, mode: 'hidden', loadStart: 0, loggedOutNotified: false,
-          lastEvent: '', title: '',
+          lastEvent: '', title: '', failures: [], gaveUp: false, retryAttempt: 0, retryTimer: null,
+          crashTimer: null, downNotified: false, challengeSince: 0, challengeNotified: false,
         };
         this.rt.set(key, rt);
       }
       if (a.sleeping) {
         if (rt.view) this.destroyView(rt);
+        this.resetRecovery(rt); // dormir e acordar zera as quedas
         rt.status = 'sleeping';
       } else if (!rt.view) {
         this.createView(rt, g);
@@ -206,6 +213,8 @@ class AccountManager {
     rt.fails = 0;
     rt.blank = 0;
     rt.baseUrl = g.url;
+    rt.challengeSince = 0;
+    rt.challengeNotified = false;
 
     const wc = view.webContents;
     wc.setWindowOpenHandler(() => ({
@@ -228,19 +237,15 @@ class AccountManager {
     wc.on('page-title-updated', (_e, title) => {
       rt.title = title;
     });
-    wc.on('did-fail-load', (_e, code, desc, _url, isMain) => {
+    wc.on('did-fail-load', (_e, code, _desc, _url, isMain) => {
       if (!isMain || code === -3) return; // -3 = navegação cancelada
-      rt.status = 'offline';
-      this.log(rt, `Falha ao carregar (${desc}). Tentando de novo em 20 s.`, 'warn');
-      clearTimeout(rt.retryTimer);
-      rt.retryTimer = setTimeout(() => {
-        if (rt.view && rt.status === 'offline' && rt.baseUrl) rt.view.webContents.loadURL(rt.baseUrl).catch(() => {});
-      }, 20000);
+      this.loadFailed(rt);
     });
     wc.on('render-process-gone', (_e, details) => {
       rt.status = 'crashed';
       this.log(rt, `A página caiu (${details.reason}).`, 'warn');
-      setTimeout(() => this.reload(rt, 'a página tinha travado'), 3000);
+      clearTimeout(rt.crashTimer);
+      rt.crashTimer = setTimeout(() => this.autoReload(rt, 'a página tinha travado'), 3000);
     });
     wc.on('unresponsive', () => {
       rt.status = 'unresponsive';
@@ -263,6 +268,8 @@ class AccountManager {
 
   destroyView(rt) {
     clearTimeout(rt.retryTimer);
+    clearTimeout(rt.crashTimer);
+    rt.retryTimer = rt.crashTimer = null;
     if (!rt.view) return;
     const view = rt.view;
     rt.view = null;
@@ -353,8 +360,10 @@ class AccountManager {
         return this.setSleeping(key, false);
       case 'reload':
         rt.lastReload = 0;
+        this.resetRecovery(rt); // recarregar à mão zera as quedas
         return this.reload(rt, null);
       case 'home':
+        this.resetRecovery(rt);
         if (rt.view && g?.url) rt.view.webContents.loadURL(g.url).catch(() => {});
         return;
       case 'devtools':
@@ -383,6 +392,7 @@ class AccountManager {
   reload(rt, reason) {
     const now = Date.now();
     if (now - rt.lastReload < MIN_RELOAD_GAP_MS) return;
+    if (reason && this.countFailure(rt, now)) return; // recarga automática: passou do limite de quedas
     rt.lastReload = now;
     rt.fails = 0;
     rt.blank = 0;
@@ -401,6 +411,126 @@ class AccountManager {
     }
   }
 
+  // ---------- recuperação (sem loops; regras em recovery.js) ----------
+  resetRecovery(rt) {
+    clearTimeout(rt.retryTimer);
+    rt.retryTimer = null;
+    rt.failures = [];
+    rt.gaveUp = false;
+    rt.retryAttempt = 0;
+    rt.downNotified = false;
+    rt.challengeSince = 0;
+    rt.challengeNotified = false;
+  }
+
+  // Conta mais uma queda. Devolve true (e desiste) se passou do limite.
+  countFailure(rt, now) {
+    rt.failures = recordFailure(rt.failures, now);
+    if (!tooManyFailures(rt.failures, now)) return false;
+    clearTimeout(rt.retryTimer);
+    rt.retryTimer = null;
+    rt.status = 'attention';
+    if (!rt.gaveUp) {
+      rt.gaveUp = true;
+      this.alert(rt, 'Esta conta caiu várias vezes seguidas e parei de recarregar. Precisa da sua atenção.');
+    }
+    return true;
+  }
+
+  // Toda recarga automática passa por aqui: sem internet não adianta recarregar.
+  async autoReload(rt, reason) {
+    if (rt.gaveUp) {
+      rt.status = 'attention';
+      return;
+    }
+    const view = rt.view;
+    const up = await this.internetUp();
+    if (rt.view !== view) return; // conta dormiu ou foi recriada no meio
+    if (!up) {
+      rt.status = 'no-internet';
+      return this.onChange();
+    }
+    this.reload(rt, reason);
+  }
+
+  // Testa a internet e avisa UMA vez (para o app todo) quando cai e quando volta.
+  async internetUp() {
+    const up = await checkInternet();
+    if (!up && !this.internetDown) {
+      this.internetDown = true;
+      const text = 'A internet do PC caiu. As contas voltam sozinhas quando ela voltar.';
+      this.log(null, text, 'alert');
+      this.notify('IdleHub', text);
+    } else if (up && this.internetDown) {
+      this.internetDown = false;
+      this.log(null, 'A internet voltou. Recarregando as contas que estavam sem ela.');
+      this.resumeAfterInternet();
+    }
+    return up;
+  }
+
+  // Recarrega as contas que esperavam a internet, uma por vez para não pesar.
+  resumeAfterInternet() {
+    let i = 0;
+    for (const rt of this.rt.values()) {
+      if (rt.status !== 'no-internet') continue;
+      clearTimeout(rt.retryTimer);
+      rt.retryTimer = setTimeout(() => {
+        rt.retryTimer = null;
+        if (rt.status === 'no-internet') this.reopen(rt);
+      }, i++ * 1500);
+    }
+  }
+
+  // Carrega a página de novo (ou refaz a conta, se o processo dela morreu).
+  reopen(rt) {
+    const { g, a } = this.find(rt.key);
+    if (!g?.url || !a || a.sleeping) return;
+    const wc = rt.view?.webContents;
+    if (!wc || wc.isDestroyed() || wc.isCrashed()) {
+      this.destroyView(rt);
+      this.createView(rt, g);
+    } else {
+      wc.loadURL(g.url).catch(() => {});
+    }
+  }
+
+  // A página não carregou: ou a internet caiu, ou o jogo está fora do ar.
+  async loadFailed(rt) {
+    const view = rt.view;
+    rt.status = 'server-down'; // provisório, para o did-stop-loading e o watchdog não acharem que está ok
+    const up = await this.internetUp();
+    if (rt.view !== view) return;
+    if (!up) {
+      rt.status = 'no-internet';
+      return this.onChange();
+    }
+    this.serverDown(rt);
+  }
+
+  // Jogo fora do ar (erro 52x ou falha de carga com internet): tenta de novo com espera crescente.
+  // Fora do contador de quedas: a culpa não é da conta, e o limite de 5 em 10 min desistiria
+  // antes de a espera chegar a 10 e 15 min.
+  serverDown(rt) {
+    rt.status = 'server-down';
+    if (!rt.downNotified) {
+      rt.downNotified = true;
+      this.alert(rt, 'O jogo está fora do ar, não é o IdleHub. Tento de novo sozinho.');
+    }
+    this.onChange();
+    if (rt.retryTimer) return;
+    rt.retryTimer = setTimeout(async () => {
+      rt.retryTimer = null;
+      if (rt.status !== 'server-down' || !rt.view) return;
+      rt.retryAttempt++;
+      if (!(await this.internetUp())) {
+        if (rt.status === 'server-down') rt.status = 'no-internet';
+        return this.onChange();
+      }
+      if (rt.status === 'server-down') this.reopen(rt);
+    }, backoffMs(rt.retryAttempt));
+  }
+
   // ---------- watchdog + alertas ----------
   startWatchdog() {
     clearInterval(this.timer);
@@ -412,6 +542,7 @@ class AccountManager {
     if (this.ticking) return;
     this.ticking = true;
     try {
+      if (this.internetDown) await this.internetUp(); // quando volta, recarrega as contas
       await Promise.all([...this.rt.values()].map((rt) => this.check(rt).catch(() => {})));
     } finally {
       this.ticking = false;
@@ -426,11 +557,18 @@ class AccountManager {
     if (wc.isDestroyed()) return;
     const s = this.getConfig().settings;
 
+    if (rt.gaveUp) {
+      rt.status = 'attention';
+      return;
+    }
     if (rt.status === 'loading') {
       if (Date.now() - rt.loadStart < LOADING_GRACE_MS) return;
-      return this.reload(rt, 'ficou carregando por tempo demais');
+      return this.autoReload(rt, 'ficou carregando por tempo demais');
     }
-    if (rt.status === 'offline' || rt.status === 'crashed') return;
+    // Travou: tenta de novo a cada rodada se a primeira recarga foi barrada pela pausa mínima.
+    if (rt.status === 'crashed') return this.autoReload(rt, 'a página tinha travado');
+    // Esses esperam o próprio temporizador (a página aberta pode ser a de erro do Chromium).
+    if (rt.status === 'no-internet' || rt.status === 'server-down') return;
 
     const args = {
       lo: { url: g.loggedOut?.urlIncludes || [], text: g.loggedOut?.textIncludes || [] },
@@ -447,14 +585,32 @@ class AccountManager {
     if (!res) {
       rt.fails++;
       rt.status = 'unresponsive';
-      if (rt.fails >= (Number(s.reloadAfterFailures) || 2)) this.reload(rt, 'parou de responder');
+      if (rt.fails >= (Number(s.reloadAfterFailures) || 2)) this.autoReload(rt, 'parou de responder');
       return;
     }
     rt.fails = 0;
 
+    const kind = classifyPage({ title: res.title, text: res.head, length: res.len });
+    if (kind === 'cloudflare') {
+      // Não recarrega: a verificação costuma passar sozinha. Se demorar, a pessoa resolve na conta.
+      rt.status = 'challenge';
+      rt.challengeSince ||= Date.now();
+      if (!rt.challengeNotified && Date.now() - rt.challengeSince >= CHALLENGE_NOTIFY_MS) {
+        rt.challengeNotified = true;
+        this.alert(rt, 'O site pediu uma verificação. Abra a conta e clique na caixa.');
+      }
+      return;
+    }
+    rt.challengeSince = 0;
+    rt.challengeNotified = false;
+    if (kind) return this.serverDown(rt);
+    // Página normal de novo: a espera e o aviso de "fora do ar" recomeçam do zero.
+    rt.retryAttempt = 0;
+    rt.downNotified = false;
+
     if (res.blank) {
       rt.blank++;
-      if (rt.blank >= 2) return this.reload(rt, 'tela em branco');
+      if (rt.blank >= 2) return this.autoReload(rt, 'tela em branco');
     } else rt.blank = 0;
 
     if (res.loggedOut) {
@@ -498,7 +654,7 @@ class AccountManager {
     }
 
     const limit = Number(s.memoryLimitMB) || 0;
-    if (limit > 0 && rt.mem > limit) this.reload(rt, `passou de ${limit} MB de memória (${rt.mem} MB)`);
+    if (limit > 0 && rt.mem > limit) this.autoReload(rt, `passou de ${limit} MB de memória (${rt.mem} MB)`);
   }
 
   updateMetrics(metrics) {

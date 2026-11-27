@@ -38,11 +38,14 @@ const STATUS = {
   unresponsive: 'Sem resposta',
   crashed: 'Travou',
   'logged-out': 'Deslogada',
-  offline: 'Sem conexão',
+  'no-internet': 'Sem internet',
+  'server-down': 'Jogo fora do ar',
+  challenge: 'Verificação',
+  attention: 'Precisa de atenção',
   sleeping: 'Dormindo',
   'no-url': 'Sem link',
 };
-const ISSUES = new Set(['unresponsive', 'crashed', 'logged-out', 'offline']);
+const ISSUES = new Set(['unresponsive', 'crashed', 'logged-out', 'no-internet', 'server-down', 'challenge', 'attention']);
 const IDLELIVE_STATUS = {
   running: 'Rodando',
   starting: 'Abrindo…',

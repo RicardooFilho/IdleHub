@@ -78,7 +78,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 ### Estados
 
 - Lista vazia, conta dormindo, jogo sem link e Painel abrindo: `<div class="empty">` com ícone, `h2`, uma frase que diz o que fazer e o botão da ação.
-- Conta: `.dot.ok` (verde brilhando), `.loading` (laranja piscando), `.unresponsive`/`.offline`/`.logged-out` (amarelo), `.crashed` (vermelho), `.sleeping`/`.no-url` (cinza). Status em texto ao lado, menos quando está rodando.
+- Conta: `.dot.ok` (verde brilhando), `.loading` (laranja piscando), `.unresponsive`/`.no-internet`/`.server-down`/`.challenge`/`.attention`/`.logged-out` (amarelo), `.crashed` (vermelho), `.sleeping`/`.no-url` (cinza). Status em texto ao lado, menos quando está rodando.
 - Conta com alerta disparado: borda `warning` no card (`.alerting`).
 
 ## Ícones
