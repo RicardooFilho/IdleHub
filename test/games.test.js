@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { PRESETS, gameFromPreset, sanitizeGame } = require('../src/main/games');
+const { PRESETS, gameFromPreset, sanitizeGame, migrateSessionTaken } = require('../src/main/games');
 
 test('os três jogos prontos vêm com link e número de contas', () => {
   const byId = Object.fromEntries(PRESETS.map((p) => [p.preset, p]));
@@ -45,4 +45,37 @@ test('sanitizeGame completa o link sem https e limpa campos ruins', () => {
 test('sanitizeGame guarda no máximo 12 contas', () => {
   const g = sanitizeGame({ name: 'X', accounts: Array.from({ length: 20 }, () => ({})) });
   assert.equal(g.accounts.length, 12);
+});
+
+test('os jogos prontos vêm com textos de conta aberta em outro lugar', () => {
+  for (const p of PRESETS) {
+    assert.ok(p.sessionTaken.textIncludes.length > 0);
+    // Frases, não palavras soltas: nada de "sessão" sozinha.
+    assert.ok(p.sessionTaken.textIncludes.every((t) => t.includes(' ')));
+    assert.deepEqual(gameFromPreset(p).sessionTaken, p.sessionTaken);
+  }
+  // Cada jogo ganha uma cópia: editar um não muda o perfil.
+  const g = gameFromPreset(PRESETS[0]);
+  g.sessionTaken.textIncludes.push('x');
+  assert.ok(!PRESETS[0].sessionTaken.textIncludes.includes('x'));
+});
+
+test('sanitizeGame limpa os textos de conta aberta em outro lugar', () => {
+  assert.deepEqual(sanitizeGame({ name: 'X', sessionTaken: { textIncludes: 'outra aba, , logged in elsewhere' } }).sessionTaken.textIncludes, ['outra aba', 'logged in elsewhere']);
+  assert.deepEqual(sanitizeGame({ name: 'X', sessionTaken: { textIncludes: ['a', '  ', 'b'] } }).sessionTaken.textIncludes, ['a', 'b']);
+  assert.deepEqual(sanitizeGame({ name: 'X' }).sessionTaken.textIncludes, []);
+});
+
+test('a migração preenche os jogos antigos com os textos do perfil, sem refazer o que já existe', () => {
+  const old = { id: 'a', preset: 'pokeidle', name: 'PokeIdle' };
+  assert.equal(migrateSessionTaken(old), true);
+  assert.deepEqual(old.sessionTaken, PRESETS.find((p) => p.preset === 'pokeidle').sessionTaken);
+  // Jogo de link livre: lista vazia (ligado só por quem quiser).
+  const custom = { id: 'b', preset: null, name: 'Meu' };
+  assert.equal(migrateSessionTaken(custom), true);
+  assert.deepEqual(custom.sessionTaken, { textIncludes: [] });
+  // Quem já tem o campo (mesmo vazio, de propósito) não é mexido.
+  const mine = { id: 'c', preset: 'pokeidle', sessionTaken: { textIncludes: [] } };
+  assert.equal(migrateSessionTaken(mine), false);
+  assert.deepEqual(mine.sessionTaken.textIncludes, []);
 });

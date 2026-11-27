@@ -9,6 +9,9 @@ const {
 const PROBE_TIMEOUT_MS = 15000;
 const LOADING_GRACE_MS = 90000;
 const MIN_RELOAD_GAP_MS = 60000;
+// Conta aberta em outro lugar: o watchdog fica longe dela por esse tempo, para
+// não derrubar a outra sessão recarregando por cima.
+const SESSION_TAKEN_PAUSE_MS = 10 * 60 * 1000;
 
 const partitionFor = (gameId, accountId) => `persist:acc-${gameId}-${accountId}`;
 
@@ -38,6 +41,7 @@ function probeInPage(a) {
   const loggedOut =
     a.lo.url.some((p) => p && href.includes(p.toLowerCase())) ||
     a.lo.text.some((p) => p && low.includes(p.toLowerCase()));
+  const sessionTaken = (a.st || []).some((p) => p && low.includes(p.toLowerCase()));
 
   const parseNum = (s) => {
     const m = String(s).match(/-?\d[\d.,\s]*\s*[kmbtKMBT]?/);
@@ -96,7 +100,7 @@ function probeInPage(a) {
   });
 
   // title e o começo do texto servem para reconhecer telas do Cloudflare e erros 52x (recovery.js).
-  return { url: location.href, blank, loggedOut, watchers, title: document.title || '', head: text.slice(0, 1500), len: text.length };
+  return { url: location.href, blank, loggedOut, sessionTaken, watchers, title: document.title || '', head: text.slice(0, 1500), len: text.length };
 }
 
 function withTimeout(p, ms) {
@@ -168,6 +172,7 @@ class AccountManager {
           key, view: null, status: 'sleeping', fails: 0, blank: 0, mem: 0, reloads: 0,
           lastReload: 0, values: {}, trig: {}, baseUrl: null, zoom: null, fps: undefined,
           muted: undefined, visible: false, mode: 'hidden', loadStart: 0, loggedOutNotified: false,
+          pausedUntil: 0, sessionTakenNotified: false,
           lastEvent: '', title: '', failures: [], gaveUp: false, retryAttempt: 0, retryTimer: null,
           crashTimer: null, downNotified: false, challengeSince: 0, challengeNotified: false,
         };
@@ -237,15 +242,28 @@ class AccountManager {
     wc.on('page-title-updated', (_e, title) => {
       rt.title = title;
     });
-    wc.on('did-fail-load', (_e, code, _desc, _url, isMain) => {
+    wc.on('did-fail-load', (_e, code, desc, _url, isMain) => {
       if (!isMain || code === -3) return; // -3 = navegação cancelada
+      // Conta pausada (aberta em outro lugar): só tenta de novo quando a pausa acabar.
+      if (rt.pausedUntil > Date.now()) {
+        rt.status = 'server-down'; // fora do "ok" até lá; o check() não mexe em conta pausada
+        this.log(rt, `Falha ao carregar (${desc}). A conta está pausada: tento de novo quando a pausa acabar.`, 'warn');
+        clearTimeout(rt.retryTimer);
+        rt.retryTimer = setTimeout(() => {
+          rt.retryTimer = null;
+          this.loadFailed(rt);
+        }, rt.pausedUntil - Date.now());
+        return;
+      }
       this.loadFailed(rt);
     });
     wc.on('render-process-gone', (_e, details) => {
       rt.status = 'crashed';
-      this.log(rt, `A página caiu (${details.reason}).`, 'warn');
+      // Conta pausada (aberta em outro lugar): só recarrega depois da pausa.
+      const wait = Math.max(3000, rt.pausedUntil - Date.now());
+      this.log(rt, wait > 3000 ? `A página caiu (${details.reason}). A conta está pausada: recarrego quando a pausa acabar.` : `A página caiu (${details.reason}).`, 'warn');
       clearTimeout(rt.crashTimer);
-      rt.crashTimer = setTimeout(() => this.autoReload(rt, 'a página tinha travado'), 3000);
+      rt.crashTimer = setTimeout(() => this.autoReload(rt, 'a página tinha travado'), wait);
     });
     wc.on('unresponsive', () => {
       rt.status = 'unresponsive';
@@ -275,6 +293,8 @@ class AccountManager {
     rt.view = null;
     rt.visible = false;
     rt.mem = 0;
+    rt.pausedUntil = 0;
+    rt.sessionTakenNotified = false;
     try {
       this.win.contentView.removeChildView(view);
     } catch {}
@@ -421,6 +441,8 @@ class AccountManager {
     rt.downNotified = false;
     rt.challengeSince = 0;
     rt.challengeNotified = false;
+    rt.pausedUntil = 0; // recarregar à mão é escolha da pessoa: tira a pausa de "aberta em outro lugar"
+    rt.sessionTakenNotified = false;
   }
 
   // Conta mais uma queda. Devolve true (e desiste) se passou do limite.
@@ -557,6 +579,9 @@ class AccountManager {
     if (wc.isDestroyed()) return;
     const s = this.getConfig().settings;
 
+    // Pausada por "aberta em outro lugar": não recarrega por nada até acabar.
+    if (rt.pausedUntil > Date.now()) return;
+
     if (rt.gaveUp) {
       rt.status = 'attention';
       return;
@@ -572,6 +597,7 @@ class AccountManager {
 
     const args = {
       lo: { url: g.loggedOut?.urlIncludes || [], text: g.loggedOut?.textIncludes || [] },
+      st: g.sessionTaken?.textIncludes || [],
       w: (g.watchers || []).filter((w) => w.enabled),
     };
     let res = null;
@@ -589,6 +615,20 @@ class AccountManager {
       return;
     }
     rt.fails = 0;
+
+    // Vem antes de "em branco" e "deslogada": a tela de aviso do jogo não é nenhuma das duas.
+    if (res.sessionTaken) {
+      rt.blank = 0;
+      rt.status = 'session-taken';
+      rt.pausedUntil = Date.now() + SESSION_TAKEN_PAUSE_MS; // texto ainda lá: renova a pausa
+      if (!rt.sessionTakenNotified) {
+        rt.sessionTakenNotified = true;
+        this.alert(rt, 'A conta foi aberta em outro lugar. Pausei o watchdog dela por 10 minutos para não derrubar a outra sessão.');
+      }
+      return;
+    }
+    rt.sessionTakenNotified = false;
+    rt.pausedUntil = 0;
 
     const kind = classifyPage({ title: res.title, text: res.head, length: res.len });
     if (kind === 'cloudflare') {
