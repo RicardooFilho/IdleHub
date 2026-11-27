@@ -148,7 +148,7 @@ function emitState() {
   win.webContents.send('state', { runtime: snap, sleeping: mgr.sleepingKeys(), rev, totalMem, totalCpu: tracker.latest.app.cpu, idlelive: idlelive.snapshot() });
   updateTrayMenu();
   if (process.env.IDLEHUB_DEBUG) {
-    const line = Object.entries(snap.accounts).map(([k, a]) => `${k.split(':')[1]}=${a.status}/${a.mem}MB`).join(' ');
+    const line = Object.entries(snap.accounts).map(([k, a]) => `${k.split(':')[1]}=${a.status}${a.conn ? `+${a.conn.state}` : ''}/${a.mem}MB`).join(' ');
     console.log(`[state] idlelive=${idlelive.status} total=${totalMem}MB ${line}`);
   }
 }
@@ -401,6 +401,7 @@ function registerIpc() {
       reloadAfterFailures: num(s.reloadAfterFailures, d.reloadAfterFailures, 1, 10),
       memoryLimitMB: num(s.memoryLimitMB, d.memoryLimitMB, 0, 16000),
       optimizeEveryHours: num(s.optimizeEveryHours, d.optimizeEveryHours, 0, 168),
+      connectionNotifyMin: Math.round(num(s.connectionNotifyMin, d.connectionNotifyMin, 0, 240)),
       backgroundFps: num(s.backgroundFps, d.backgroundFps, 0, 144),
       mosaicFps: num(s.mosaicFps, d.mosaicFps, 0, 144),
       tileBaseWidth: num(s.tileBaseWidth, d.tileBaseWidth, 480, 3840),

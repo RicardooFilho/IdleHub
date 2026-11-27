@@ -61,6 +61,7 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Histórico de CPU e memória (última hora) e regra de conta "pesada" | `src/main/metrics.js` |
 | Registro de eventos das contas (`%APPDATA%/IdleHub/events.jsonl`) e resumo de um período | `src/main/events.js` |
 | Grupos de contas e perfis de arrumação (quem acordar e dormir, limpeza de contas apagadas) | `src/main/groups.js` |
+| Conexão de cada conta com o servidor do jogo (conectada, sem dados, caiu) | `src/main/connection.js` |
 | Percebe a volta ao PC depois de horas fora ("Enquanto você estava fora") | `src/main/away.js` |
 | Resumo do dia: horário marcado, texto para os canais e recuperação se o PC estava dormindo | `src/main/daily.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
@@ -70,6 +71,9 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 - **Watchdog:** a cada N segundos verifica cada conta. Recarrega se parar de responder,
   ficar em branco, cair ou ficar carregando demais (no máximo 1 recarga por minuto
   por conta). Avisa quando a conta sai do login.
+- **Conexão:** cada conta rodando mostra **Conectada**, **Sem dados há N min** ou **Conexão caiu**, conforme o jogo continua recebendo dados do servidor
+  (`src/main/connection.js`). O IdleHub só anota quando chega dado (WebSocket e pedidos do site do jogo), nunca o conteúdo. Se o WebSocket cair e não voltar
+  em 2 minutos, recarrega a conta pelas mesmas regras de segurança do watchdog. **Configurações → Watchdog → Avisar se ficar sem dados por (minutos)** avisa quando o jogo fica parado (0 = desligado).
 - **Otimizar:** fecha a conta e abre de novo num processo novo, no mesmo login e na mesma
   página, para liberar mais memória do que recarregar. À mão (**Otimizar** na conta, **Otimizar todas**
   no jogo) ou sozinho: quando a conta passa do limite de memória e/ou a cada N horas

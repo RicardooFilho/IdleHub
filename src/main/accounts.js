@@ -8,8 +8,12 @@ const { isUserInput, isDangerousFile, shouldAllowPopup, shouldAllowDownload } = 
 const {
   CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, reconnectingTooLong, classifyPage, checkInternet,
 } = require('./recovery');
-const { AUTO_GAP_MS, ALL_GAP_MS, pickReturnUrl, staggerDelays, autoOptimizeReason } = require('./optimize');
+const { AUTO_GAP_MS, ALL_GAP_MS, sameSite, pickReturnUrl, staggerDelays, autoOptimizeReason } = require('./optimize');
 const { WAKE_GAP_MS } = require('./groups');
+const {
+  RELOAD_GAP_MS, createConnection, noteHttp, noteSockets, restartDropWait, connectionState, silentAfterMs,
+  shouldNotifySilence, countsAsActivity, fmtIdle,
+} = require('./connection');
 const { ISSUE_TYPES } = require('./events');
 const { GAME_TAB, initialTabs, selectTab, closeTab, pruneTabs } = require('./subpages');
 
@@ -25,6 +29,7 @@ const BLOCKED_LOG_GAP_MS = 60000; // aviso de janela bloqueada: no máximo 1 por
 // controle de janelas e downloads. E as sessões que já escutam downloads.
 const inputOf = new WeakMap();
 const downloadGuarded = new WeakSet();
+const connectionGuarded = new WeakSet(); // sessões que já escutam os pedidos do jogo (connection.js)
 
 const partitionFor = (gameId, accountId) => `persist:acc-${gameId}-${accountId}`;
 
@@ -114,7 +119,13 @@ function probeInPage(a) {
   });
 
   // title e o começo do texto servem para reconhecer telas do Cloudflare e erros 52x (recovery.js).
-  return { url: location.href, blank, loggedOut, sessionTaken, reconnecting, watchers, title: document.title || '', head: text.slice(0, 1500), len: text.length };
+  // Conexão do jogo (preload/game.js): só horários dos WebSockets, nada do conteúdo.
+  let net = null;
+  try {
+    if (typeof window !== 'undefined' && typeof window.__idleHubNet === 'function') net = window.__idleHubNet();
+  } catch {}
+
+  return { url: location.href, blank, loggedOut, sessionTaken, reconnecting, watchers, title: document.title || '', head: text.slice(0, 1500), len: text.length, net };
 }
 
 function withTimeout(p, ms) {
@@ -143,6 +154,7 @@ class AccountManager {
     this.ticking = false;
     this.internetDown = false; // um aviso só para o app inteiro, não um por conta
     this.nextOptimizeAt = 0; // otimização automática: uma por vez, com espaço entre elas
+    this.nextConnReloadAt = 0; // recarga por conexão caída: uma por vez, com espaço entre elas
     this.optimizeTimers = new Set(); // fila do "Otimizar todas"
     this.wakeTimers = new Set(); // fila de contas acordando ao trocar de grupo ou perfil
   }
@@ -205,6 +217,7 @@ class AccountManager {
           createdAt: 0, // quando o processo da conta nasceu (dormir/acordar e otimizar zeram)
           tabs: initialTabs(), // subpáginas (subpages.js): qual aba aparece e quais já foram abertas
           subs: new Map(), // id da subpágina -> { id, url, view, visible, zoom, muted, lastInputAt }
+          net: createConnection(), conn: null, silentNotified: false, // conexão com o servidor do jogo (connection.js)
         };
         this.rt.set(key, rt);
       }
@@ -255,11 +268,17 @@ class AccountManager {
     rt.createdAt = Date.now();
     rt.challengeSince = 0;
     rt.challengeNotified = false;
+    this.resetConnection(rt);
 
     const wc = view.webContents;
     attachShortcuts(wc, (s) => this.onShortcut({ ...s, from: rt.key })); // o foco dentro do jogo não chega na interface
     this.guardWindows(rt, wc, rt, webPreferences);
     this.guardDownloads(wc.session, rt.key);
+    this.guardConnection(wc.session, rt.key);
+    // Página nova = conexões novas: a contagem recomeça (a recarga não pode herdar a "queda" da página anterior).
+    wc.on('did-start-navigation', (details) => {
+      if (details?.isMainFrame && !details.isSameDocument) this.resetConnection(rt);
+    });
     wc.on('did-start-loading', () => {
       rt.status = 'loading';
       rt.loadStart = Date.now();
@@ -368,6 +387,30 @@ class AccountManager {
     });
   }
 
+  resetConnection(rt) {
+    rt.net = createConnection();
+    rt.conn = null;
+    rt.silentNotified = false;
+  }
+
+  // Anota (só o horário) cada resposta de pedido XHR/fetch do site do jogo. Fica na sessão da conta,
+  // que é a mesma quando ela dorme e acorda. Não lê o endereço nem o conteúdo: só compara o site.
+  guardConnection(ses, key) {
+    if (connectionGuarded.has(ses)) return;
+    connectionGuarded.add(ses);
+    ses.webRequest.onCompleted({ urls: ['http://*/*', 'https://*/*'] }, (d) => {
+      if (!countsAsActivity(d)) return;
+      const rt = this.rt.get(key);
+      if (!rt?.view) return;
+      try {
+        if (d.webContentsId !== rt.view.webContents.id || !sameSite(d.url, rt.baseUrl)) return;
+      } catch {
+        return;
+      }
+      noteHttp(rt.net, Date.now());
+    });
+  }
+
   destroyView(rt) {
     clearTimeout(rt.retryTimer);
     clearTimeout(rt.crashTimer);
@@ -382,6 +425,7 @@ class AccountManager {
     rt.pausedUntil = 0;
     rt.sessionTakenNotified = false;
     rt.reconnectingSince = 0;
+    this.resetConnection(rt);
     try {
       this.win.contentView.removeChildView(view);
     } catch {}
@@ -813,6 +857,9 @@ class AccountManager {
   // Recarrega as contas que esperavam a internet, uma por vez para não pesar.
   resumeAfterInternet() {
     let i = 0;
+    const now = Date.now();
+    // Os sockets caíram junto com a internet: o jogo ganha tempo para reconectar antes de contar como "caiu".
+    for (const rt of this.rt.values()) restartDropWait(rt.net, now);
     for (const rt of this.rt.values()) {
       if (rt.status !== 'no-internet') continue;
       clearTimeout(rt.retryTimer);
@@ -1037,6 +1084,14 @@ class AccountManager {
       }
     }
 
+    // Conexão com o servidor do jogo (só em conta funcionando bem): avisa se ficou sem dados e
+    // recarrega se a conexão caiu e não voltou. Passa pelo autoReload (sem internet não recarrega,
+    // conta a queda e desiste no limite).
+    if (rt.status === 'ok') {
+      const reload = this.checkConnection(rt, res.net, s);
+      if (reload) return this.autoReload(rt, 'a conexão com o servidor caiu');
+    }
+
     // Conta funcionando bem: por memória ou por tempo, reabre num processo novo (otimizar.js).
     // Recarregar só a página não devolve a memória; por isso o limite agora otimiza.
     // Só uma por vez no app todo (nextOptimizeAt), para não reabrir todas juntas.
@@ -1049,6 +1104,29 @@ class AccountManager {
     if (!why) return;
     this.nextOptimizeAt = now + AUTO_GAP_MS;
     return this.autoOptimize(rt, why);
+  }
+
+  // Atualiza rt.conn (o que aparece na tela) e avisa se ficou sem dados. Devolve true se é hora de recarregar.
+  checkConnection(rt, snap, s) {
+    const now = Date.now();
+    noteSockets(rt.net, snap, now);
+    if (this.internetDown) {
+      rt.conn = null; // sem internet é outro problema (e outro aviso): não acusa o jogo
+      return false;
+    }
+    const c = connectionState(rt.net, now, { silentAfterMs: silentAfterMs(s.connectionNotifyMin) });
+    rt.conn = c.state === 'unknown' ? null : { state: c.state, idle: fmtIdle(c.idleMs) };
+    if (shouldNotifySilence({ state: c.state, minutes: s.connectionNotifyMin, notified: rt.silentNotified })) {
+      rt.silentNotified = true;
+      this.record(rt, 'alert', 'Sem dados do servidor');
+      this.alert(rt, `O jogo está sem receber dados do servidor há ${fmtIdle(c.idleMs)}.`);
+    } else if (c.state === 'connected' && rt.silentNotified) {
+      rt.silentNotified = false;
+      this.log(rt, 'O jogo voltou a receber dados do servidor.');
+    }
+    if (!c.reload || now < this.nextConnReloadAt) return false;
+    this.nextConnReloadAt = now + RELOAD_GAP_MS;
+    return true;
   }
 
   // tracker (metrics.js): guarda o histórico e diz se a conta está pesada. Só números, nada caro.
@@ -1099,6 +1177,7 @@ class AccountManager {
         lastEvent: rt.lastEvent,
         title: rt.title,
         ...this.tabState(rt),
+        conn: rt.conn,
       };
     }
     return { accounts, log: this.logs.slice(-150) };

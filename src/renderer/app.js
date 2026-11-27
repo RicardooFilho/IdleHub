@@ -54,7 +54,17 @@ const STATUS = {
   sleeping: 'Dormindo',
   'no-url': 'Sem link',
 };
-const ISSUES = new Set(['unresponsive', 'crashed', 'logged-out', 'no-internet', 'server-down', 'challenge', 'attention', 'session-taken', 'reconnecting']);
+const ISSUES = new Set(['unresponsive', 'crashed', 'logged-out', 'no-internet', 'server-down', 'challenge', 'attention', 'session-taken', 'reconnecting', 'no-data', 'conn-dropped']);
+
+// Status mostrado de uma conta. Rodando bem, vale a conexão com o servidor do jogo (r.conn, vem de
+// connection.js): conectada, sem dados há N min ou conexão caiu. `st` também é a classe da bolinha.
+function statusOf(r) {
+  const c = r.status === 'ok' ? r.conn : null;
+  if (c?.state === 'silent') return { st: 'no-data', text: `Sem dados há ${c.idle}` };
+  if (c?.state === 'dropped') return { st: 'conn-dropped', text: 'Conexão caiu' };
+  if (c?.state === 'connected') return { st: 'ok', text: 'Conectada' };
+  return { st: r.status, text: r.status === 'ok' ? '' : STATUS[r.status] || r.status };
+}
 const IDLELIVE_STATUS = {
   running: 'Rodando',
   starting: 'Abrindo…',
@@ -396,10 +406,10 @@ function refreshTiles() {
       needRender = true;
       break;
     }
-    const st = a.sleeping ? 'sleeping' : r.status;
-    $('[data-dot]', el).className = `dot ${st}`;
+    const shown = a.sleeping ? { st: 'sleeping', text: STATUS.sleeping } : statusOf(r);
+    $('[data-dot]', el).className = `dot ${shown.st}`;
     const stEl = $('[data-status]', el);
-    stEl.textContent = st === 'ok' ? '' : STATUS[st] || st;
+    stEl.textContent = shown.text;
     stEl.title = r.lastEvent || '';
     const memEl = $('[data-mem]', el);
     const memText = r.mem ? `CPU ${fmtCpu(r.cpu || 0)} · ${fmtMem(r.mem)}` : '';
@@ -443,7 +453,7 @@ function updateStats() {
       const r = rtOf(key, a);
       if (a.sleeping) sleeping++;
       else if (r.live) running++;
-      if (ISSUES.has(r.status)) issues++;
+      if (ISSUES.has(statusOf(r).st)) issues++;
       mem += r.mem || 0;
       if (r.heavy) heavy++;
     }
@@ -480,7 +490,7 @@ function updateRail() {
     for (const a of g.accounts) {
       const r = rtOf(keyOf(g, a), a);
       if (!a.sleeping && r.live) live++;
-      if (ISSUES.has(r.status)) issues++;
+      if (ISSUES.has(statusOf(r).st)) issues++;
     }
     el.textContent = issues || `${live}/${g.accounts.length}`;
     el.variant = issues ? 'danger' : 'neutral';
@@ -856,6 +866,7 @@ function settingsHtml(d) {
           ${num('reloadAfterFailures', 'Recarregar após quantas falhas seguidas', '', 1, 10)}
           ${num('memoryLimitMB', 'Otimizar se a conta passar de (MB)', '0 = sem limite. Reabre a conta num processo novo.', 0, 16000)}
           ${num('optimizeEveryHours', 'Otimizar cada conta a cada (horas)', '0 = desligado. Libera memória sem perder o login.', 0, 168)}
+          ${num('connectionNotifyMin', 'Avisar se ficar sem dados por (minutos)', '0 = desligado. Avisa se o jogo parar de receber dados do servidor por esse tempo.', 0, 240)}
         </div>
       </div>
       <div class="form-block">
