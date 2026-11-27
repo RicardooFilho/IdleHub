@@ -12,8 +12,10 @@ const S = {
   perf: null, // histórico de CPU e memória (IPC metrics:history), só carregado com a janela Desempenho aberta
   perfAt: 0,
   view: loadView(), // panel | all | game | focus
-  modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log' | 'away' | 'extensions' | 'ext-add' | 'ext-risk' | 'vault' | 'vault-edit', draft, pickInfo? }
+  modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log' | 'away' | 'extensions' | 'ext-add' | 'us-add' | 'ext-risk' | 'vault' | 'vault-edit', draft, pickInfo? }
   ext: [], // extensões instaladas (IPC ext:list)
+  us: [], // scripts de usuário instalados (IPC us:list)
+  extTab: 'ext', // aba da janela Extensões: 'ext' (do Chrome) ou 'scripts' (de usuário)
   vault: { available: false, hasMaster: false, locked: false, lockMinutes: 10, entries: {} }, // cofre de logins: só o usuário e se há senha/notas/2FA (IPC vault:state)
   reopen: null, // janela de Configurações a reabrir depois de ver o resumo do dia por ela
   awayPending: null, // resumo de "Enquanto você estava fora" esperando a janela aberta fechar
@@ -199,7 +201,7 @@ function renderRail() {
   h += `<button class="rail-btn add" data-action="add-game" title="Adicionar jogo">${icon('plus', 'Adicionar jogo')}</button>
     <div class="rail-spacer"></div>
     <button class="rail-btn" data-action="open-groups" title="Grupos e perfis: trocar de grupo de contas ou de arrumação">${icon('layer-group', 'Grupos e perfis')}</button>
-    <button class="rail-btn" data-action="open-ext" title="Extensões do Chrome, por conta">${icon('puzzle-piece', 'Extensões')}</button>
+    <button class="rail-btn" data-action="open-ext" title="Extensões e scripts, por conta">${icon('puzzle-piece', 'Extensões')}</button>
     <button class="rail-btn" data-action="open-vault" title="Cofre de logins: usuário e senha de cada conta, criptografados neste PC">${icon('key', 'Cofre de logins')}</button>
     <button class="rail-btn" data-action="open-perf" title="Desempenho: CPU e memória de cada conta">${icon('gauge-high', 'Desempenho')}</button>
     <button class="rail-btn" data-action="open-log" title="Atividade: recargas, logouts e alertas">${icon('bell', 'Atividade')}<wa-badge class="count" variant="danger" pill data-log-count hidden></wa-badge></button>
@@ -570,8 +572,9 @@ const MODAL_TITLES = {
   perf: 'Desempenho',
   groups: 'Grupos e perfis',
   away: 'Enquanto você estava fora',
-  extensions: 'Extensões',
+  extensions: 'Extensões e scripts',
   'ext-add': 'Instalar extensão',
+  'us-add': 'Instalar script',
   'ext-risk': 'Revisar extensão',
   vault: 'Cofre de logins',
   'vault-edit': 'Login da conta',
@@ -585,7 +588,7 @@ function renderModal() {
     return;
   }
   const m = S.modal;
-  d.label = m.kind === 'group' ? (m.draft.id ? `Editar ${m.draft.name || 'grupo'}` : 'Novo grupo') : m.kind === 'game' ? (m.draft.id ? `Editar ${m.draft.name}` : 'Adicionar jogo') : m.kind === 'away' && m.draft.kind === 'daily' ? 'Resumo do dia' : MODAL_TITLES[m.kind];
+  d.label = m.kind === 'group' ? (m.draft.id ? `Editar ${m.draft.name || 'grupo'}` : 'Novo grupo') : m.kind === 'game' ? (m.draft.id ? `Editar ${m.draft.name}` : 'Adicionar jogo') : m.kind === 'away' && m.draft.kind === 'daily' ? 'Resumo do dia' : m.kind === 'ext-risk' && m.draft.summary?.kind === 'script' ? 'Revisar script' : MODAL_TITLES[m.kind];
   // As boas-vindas só fecham pelo botão: sem jogos, o app fica vazio.
   d.toggleAttribute('light-dismiss', m.kind !== 'onboard');
   d.toggleAttribute('without-header', false);
@@ -607,6 +610,7 @@ function renderModalBody() {
     m.kind === 'away' ? awayHtml(m.draft) :
     m.kind === 'extensions' ? extensionsHtml() :
     m.kind === 'ext-add' ? extAddHtml() :
+    m.kind === 'us-add' ? usAddHtml(m.draft) :
     m.kind === 'ext-risk' ? extRiskHtml(m.draft) :
     m.kind === 'vault' ? vaultListHtml(m.draft) :
     m.kind === 'vault-edit' ? vaultEditHtml(m.draft) : '';
@@ -624,7 +628,7 @@ dlg().addEventListener('wa-hide', (e) => {
   if (S.picking) return; // escondida só enquanto a pessoa escolhe na tela: o rascunho continua aqui
   if (S.modal?.kind === 'onboard') return e.preventDefault();
   if (S.modal?.kind === 'log') S.seenLog = Date.now();
-  if (S.modal?.kind === 'ext-risk') api.extDiscard(S.modal.draft.token);
+  if (S.modal?.kind === 'ext-risk') discardDraft(S.modal.draft);
   S.modal = null;
   updateRail();
 });
@@ -1260,7 +1264,15 @@ const accountPicker = (control) =>
     )
     .join('');
 
+// Abas da janela Extensões: o que se instala (extensão do Chrome ou script de usuário).
+const extTabs = () => `<wa-button-group label="O que instalar">
+    ${[['ext', 'Extensões do Chrome', 'puzzle-piece'], ['scripts', 'Scripts de usuário', 'code']]
+      .map(([tab, name, ic]) => `<wa-button size="s" variant="${S.extTab === tab ? 'brand' : 'neutral'}" appearance="${S.extTab === tab ? 'filled' : 'outlined'}" data-action="ext-tab" data-tab="${tab}"><wa-icon slot="start" name="${ic}"></wa-icon>${name}</wa-button>`)
+      .join('')}
+  </wa-button-group>`;
+
 function extensionsHtml() {
+  if (S.extTab === 'scripts') return scriptsHtml();
   const list = S.ext || [];
   const card = (x) => `<div class="ext-card">
       <div class="ext-head">
@@ -1280,6 +1292,7 @@ function extensionsHtml() {
       </div>
     </div>`;
   return `<div class="form">
+      ${extTabs()}
       ${banCallout}
       <wa-callout variant="neutral" size="s"><wa-icon slot="icon" name="circle-info"></wa-icon>
         Cada extensão roda só nas contas que você ligar, e a conta recarrega ao ligar ou desligar. O IdleHub não mostra ícone nem popup de extensão:
@@ -1308,20 +1321,81 @@ function extAddHtml() {
     <wa-button slot="footer" appearance="plain" data-action="open-ext">Voltar</wa-button>`;
 }
 
+// ----- scripts de usuário (TAG-35): mesma janela das extensões, outra aba. Análise e instalação: src/main/userscript-store.js.
+const RUN_AT = { 'document-start': 'antes de o jogo carregar', 'document-body': 'quando a página começa a aparecer', 'document-end': 'quando a página termina de ler', 'document-idle': 'depois de a página carregar', 'context-menu': 'depois de a página carregar' };
+const MODE = { isolated: ['neutral', 'Mundo à parte'], main: ['warning', 'Mundo da página'] };
+
+function scriptsHtml() {
+  const list = S.us || [];
+  const card = (x) => `<div class="ext-card">
+      <div class="ext-head">
+        <span class="ext-name">${esc(x.name)}</span><span class="meta num">v${esc(x.version)}</span>
+        ${badge(MODE[x.mode] || MODE.main)}${badge(RISK[x.risk] || RISK.low)}
+        <span class="meta">${x.source === 'url' ? 'Instalado por link' : 'Código colado'}</span>
+      </div>
+      <p class="meta" style="margin:0">Versão travada (código ${esc(x.hash.slice(0, 8))}): só muda quando você pedir. Roda ${RUN_AT[x.runAt] || RUN_AT['document-idle']}. ${x.previousVersion ? `Guardei também a versão ${esc(x.previousVersion)}.` : ''}</p>
+      <div class="form-block">
+        <span class="form-label">Contas onde ele roda</span>
+        ${accountPicker((g, a) => `<wa-switch size="s" data-us-account="${esc(x.id)}" data-key="${esc(keyOf(g, a))}" ${x.accounts.includes(keyOf(g, a)) ? 'checked' : ''}>${esc(a.name)}</wa-switch>`)}
+      </div>
+      <div class="ext-actions">
+        ${x.canUpdateByUrl ? `<wa-button size="s" variant="brand" appearance="outlined" data-action="us-update" data-id="${esc(x.id)}"><wa-icon slot="start" name="rotate-right"></wa-icon>Procurar atualização</wa-button>` : ''}
+        <wa-button size="s" variant="${x.canUpdateByUrl ? 'neutral' : 'brand'}" appearance="outlined" data-action="us-update-paste" data-id="${esc(x.id)}" data-name="${esc(x.name)}"><wa-icon slot="start" name="paste"></wa-icon>Atualizar colando o código</wa-button>
+        ${x.previousVersion ? `<wa-button size="s" appearance="plain" data-action="us-rollback" data-id="${esc(x.id)}" data-version="${esc(x.previousVersion)}"><wa-icon slot="start" name="clock-rotate-left"></wa-icon>Voltar para a versão ${esc(x.previousVersion)}</wa-button>` : ''}
+        <wa-button size="s" appearance="plain" data-action="us-remove" data-id="${esc(x.id)}" data-name="${esc(x.name)}"><wa-icon slot="start" name="trash"></wa-icon>Remover</wa-button>
+      </div>
+    </div>`;
+  return `<div class="form">
+      ${extTabs()}
+      ${banCallout}
+      <wa-callout variant="neutral" size="s"><wa-icon slot="icon" name="circle-info"></wa-icon>
+        Scripts de usuário (<b>.user.js</b>, como os do Tampermonkey) rodam só nos sites dos seus jogos e só nas contas que você ligar; a conta recarrega ao ligar ou desligar.
+        Nunca rodam no login do Google. Não dá para instalar scripts que baixam código de outros sites (<b>@require</b>).</wa-callout>
+      ${list.length ? list.map(card).join('') : `<div class="empty">${icon('code')}<h2>Nenhum script instalado</h2><p>Instale um pelo link do Greasy Fork ou do OpenUserJS, ou colando o código. Antes, você vê o que ele faz.</p></div>`}
+    </div>
+    <wa-button slot="footer" appearance="plain" data-dialog="close">Fechar</wa-button>
+    <wa-button slot="footer" variant="brand" data-action="us-add"><wa-icon slot="start" name="plus"></wa-icon>Instalar script</wa-button>`;
+}
+
+// `d.updateId`: atualizando um script já instalado (só dá para colar o código novo).
+function usAddHtml(d) {
+  const paste = `<div class="form-block">
+        <span class="form-label">${d.updateId ? `Código novo de ${esc(d.name)}` : 'Colando o código'}</span>
+        <wa-textarea label="Código do script" data-f="us-code" rows="8" resize="vertical" placeholder="// ==UserScript==&#10;// @name ...&#10;// ==/UserScript=="></wa-textarea>
+        <div><wa-button variant="brand" ${d.updateId ? '' : 'appearance="outlined"'} data-action="us-analyze-code"><wa-icon slot="start" name="magnifying-glass"></wa-icon>Ver o que ele faz</wa-button></div>
+      </div>`;
+  return `<div class="form">
+      ${d.updateId ? '' : `<div class="form-block">
+        <span class="form-label">Por um link</span>
+        <wa-input label="Link do script" data-f="us-input" placeholder="https://greasyfork.org/pt-BR/scripts/…" hint="Página do Greasy Fork ou do OpenUserJS, ou o link de um arquivo .user.js do GitHub."></wa-input>
+        <div><wa-button variant="brand" data-action="us-analyze-url"><wa-icon slot="start" name="magnifying-glass"></wa-icon>Ver o que ele faz</wa-button></div>
+      </div>`}
+      ${paste}
+      <wa-callout variant="neutral" size="s"><wa-icon slot="icon" name="circle-info"></wa-icon>
+        Nada é instalado agora: primeiro você vê os sites onde ele roda, os endereços de rede que ele pode acessar e os sinais de automação, e escolhe em quais contas ligar.</wa-callout>
+    </div>
+    <wa-button slot="footer" appearance="plain" data-action="open-ext">Voltar</wa-button>`;
+}
+
+// Descarta a análise de extensão ou de script que ficou esperando.
+const discardDraft = (d) => (d.summary?.kind === 'script' ? api.usDiscard(d.token) : api.extDiscard(d.token));
+
 function extRiskHtml(d) {
   const s = d.summary;
   const update = d.mode === 'update';
+  const sc = s.kind === 'script'; // script de usuário: mesma tela, com "ele" em vez de "ela"
   const li = (tag, text, hint) => `<li>${tag ? `<wa-badge pill variant="${tag[0]}" appearance="outlined">${esc(tag[1])}</wa-badge>` : ''}<span>${text}${hint ? ` <span class="meta">${esc(hint)}</span>` : ''}</span></li>`;
   const section = (title, items, empty) =>
     `<div class="form-block"><span class="form-label">${title}</span>${items.length ? `<ul class="ext-list">${items.join('')}</ul>` : `<p class="meta">${esc(empty)}</p>`}</div>`;
   const files = (name, arr) => (arr.length ? `<li><span><b>${name}:</b> <span class="meta">${arr.slice(0, 8).map(esc).join(', ')}${arr.length > 8 ? ` e mais ${arr.length - 8}` : ''}</span></span></li>` : '');
 
-  const head = `<div class="ext-head"><span class="ext-name">${esc(s.name)}</span><span class="meta num">v${esc(s.version)}</span>${badge(COMPAT[s.compat.level] || COMPAT.ok)}${badge(RISK[s.risk] || RISK.low)}</div>
+  const head = `<div class="ext-head"><span class="ext-name">${esc(s.name)}</span><span class="meta num">v${esc(s.version)}</span>${sc ? badge(MODE[s.mode] || MODE.main) : badge(COMPAT[s.compat.level] || COMPAT.ok)}${badge(RISK[s.risk] || RISK.low)}</div>
+    ${sc ? `<p class="meta" style="margin:0">Roda ${RUN_AT[s.runAt] || RUN_AT['document-idle']}.</p>` : ''}
     ${s.description ? `<p class="meta" style="margin:0">${esc(s.description)}</p>` : ''}`;
   if (s.blocked) {
     return `<div class="form">${head}
       <wa-callout variant="danger" size="s"><wa-icon slot="icon" name="circle-xmark"></wa-icon>
-        <b>O IdleHub não ${update ? 'atualiza para' : 'instala'} ${update ? 'esta versão' : 'esta extensão'}</b>, por segurança:
+        <b>O IdleHub não ${update ? 'atualiza para' : 'instala'} ${update ? 'esta versão' : sc ? 'este script' : 'esta extensão'}</b>, por segurança:
         <ul class="ext-list">${s.errors.map((e) => `<li><span>${esc(e)}</span></li>`).join('')}</ul></wa-callout>
       ${update ? '<p class="meta">Você continua na versão que já tem.</p>' : ''}
     </div>
@@ -1331,14 +1405,14 @@ function extRiskHtml(d) {
   const diff = d.diff;
   const changes = diff
     ? `<div class="form-block"><span class="form-label">O que mudou (v${esc(diff.from)} → v${esc(diff.to)})</span>
-        ${diff.needsConfirm ? `<wa-callout variant="warning" size="s"><wa-icon slot="icon" name="triangle-exclamation"></wa-icon><b>A versão nova ganha mais acesso do que a atual.</b> Só atualize se confiar em quem faz a extensão.</wa-callout>` : '<p class="meta" style="margin:0">Sem permissões, sites ou sinais de automação novos.</p>'}
+        ${diff.needsConfirm ? `<wa-callout variant="warning" size="s"><wa-icon slot="icon" name="triangle-exclamation"></wa-icon><b>A versão nova ganha mais acesso do que a atual.</b> Só atualize se confiar em quem faz ${sc ? 'o script' : 'a extensão'}.</wa-callout>` : '<p class="meta" style="margin:0">Sem permissões, sites ou sinais de automação novos.</p>'}
         <ul class="ext-list">
           ${diff.newPermissions.length ? li(['warning', 'novo'], `Permissões: ${diff.newPermissions.map(esc).join(', ')}`) : ''}
           ${diff.newSites.length ? li(['warning', 'novo'], `Sites: ${diff.newSites.map(esc).join(', ')}`) : ''}
           ${diff.newCodeSites.length ? li(['warning', 'novo'], `Endereços de fora no código: ${diff.newCodeSites.map(esc).join(', ')}`) : ''}
           ${diff.newAutomation.length ? li(['warning', 'novo'], 'Sinais de automação novos no código') : ''}
           ${diff.removedPermissions.length ? li(['neutral', 'saiu'], `Permissões: ${diff.removedPermissions.map(esc).join(', ')}`) : ''}
-          ${files('Arquivos novos', diff.files.added)}${files('Arquivos mudados', diff.files.changed)}${files('Arquivos removidos', diff.files.removed)}
+          ${sc ? li(null, `<b>Código:</b> <span class="meta">${diff.code ? `${diff.code.added} ${diff.code.added === 1 ? 'linha nova' : 'linhas novas'}, ${diff.code.removed} ${diff.code.removed === 1 ? 'linha removida' : 'linhas removidas'}` : 'mudou'}</span>`) : `${files('Arquivos novos', diff.files.added)}${files('Arquivos mudados', diff.files.changed)}${files('Arquivos removidos', diff.files.removed)}`}
         </ul></div>`
     : '';
 
@@ -1346,12 +1420,12 @@ function extRiskHtml(d) {
   const sites = [
     ...s.scriptSites.map((x) => li(null, `Roda em ${esc(x)}`)),
     ...s.hostSites.filter((x) => !s.scriptSites.includes(x)).map((x) => li(null, `Pode acessar ${esc(x)}`)),
-    ...s.codeSites.map((x) => li(['warning', 'fora do jogo'], esc(x), 'aparece no código: pode ser só um link, ou um servidor que recebe dados')),
+    ...s.codeSites.map((x) => li(['warning', 'fora do jogo'], esc(x), (s.connectSites || []).includes(x) ? 'o script pode enviar e receber dados desse endereço (@connect)' : 'aparece no código: pode ser só um link, ou um servidor que recebe dados')),
     ...s.network.map((x) => li(null, esc(x))),
   ];
   const auto = s.automation.map((x) => li(['warning', 'automação'], esc(x.label)));
   const accounts = update
-    ? `<p class="meta">Se ela já roda em alguma conta, essa conta recarrega ao atualizar.</p>`
+    ? `<p class="meta">Se ${sc ? 'ele' : 'ela'} já roda em alguma conta, essa conta recarrega ao atualizar.</p>`
     : `<div class="form-block"><span class="form-label">Em quais contas ligar?</span>
         ${accountPicker((g, a) => `<wa-checkbox size="s" data-ext-pick data-key="${esc(keyOf(g, a))}">${esc(a.name)}</wa-checkbox>`)}
         <p class="meta">Nenhuma marcada = fica instalada e desligada. Dá para ligar depois, conta por conta.</p></div>`;
@@ -1360,9 +1434,9 @@ function extRiskHtml(d) {
       ${s.compat.notes.length ? `<wa-callout variant="${s.compat.level === 'incompatible' ? 'warning' : 'neutral'}" size="s"><wa-icon slot="icon" name="circle-info"></wa-icon>${s.compat.notes.map(esc).join(' ')}</wa-callout>` : ''}
       ${s.warnings.length ? `<ul class="ext-list">${s.warnings.map((w) => li(['warning', 'atenção'], esc(w))).join('')}</ul>` : ''}
       ${changes}
-      ${section('O que ela pode fazer', perms, 'Não pede nenhuma permissão especial.')}
-      ${section('Sites e rede', sites, 'Não encontrei nenhum site no manifesto nem no código.')}
-      ${section('Sinais de automação no código', auto, 'Nenhum encontrado. Isso não garante que ela não jogue por você: o código pode estar escondido.')}
+      ${section(sc ? 'O que ele pode fazer' : 'O que ela pode fazer', perms, 'Não pede nenhuma permissão especial.')}
+      ${section('Sites e rede', sites, sc ? 'Não encontrei nenhum site no cabeçalho nem no código.' : 'Não encontrei nenhum site no manifesto nem no código.')}
+      ${section('Sinais de automação no código', auto, `Nenhum encontrado. Isso não garante que ${sc ? 'ele' : 'ela'} não jogue por você: o código pode estar escondido.`)}
       ${banCallout}
       ${accounts}
       <wa-checkbox data-f="ext-ack">Entendi o risco de banimento e quero ${update ? 'atualizar' : 'instalar'} mesmo assim</wa-checkbox>
@@ -1380,7 +1454,7 @@ function showExtResult(r, mode) {
 }
 
 async function backToExtensions() {
-  S.ext = await api.extensionsList();
+  [S.ext, S.us] = await Promise.all([api.extensionsList(), api.userscriptsList()]);
   openModal('extensions');
 }
 
@@ -2036,11 +2110,61 @@ async function onAction(act, el) {
 
     case 'open-ext':
     case 'ext-cancel': {
-      if (act === 'ext-cancel') await api.extDiscard(S.modal.draft.token);
+      if (act === 'ext-cancel') await discardDraft(S.modal.draft);
       return backToExtensions();
     }
+    case 'ext-tab':
+      S.extTab = el.dataset.tab === 'scripts' ? 'scripts' : 'ext';
+      return renderModalBody();
     case 'ext-add':
       return openModal('ext-add');
+    case 'us-add':
+      return openModal('us-add', {});
+    case 'us-analyze-url': {
+      const input = $('#dialog [data-f="us-input"]');
+      if (!input?.value.trim()) {
+        input?.focus();
+        return toast('Cole o link do script (Greasy Fork, OpenUserJS ou GitHub).');
+      }
+      el.loading = true;
+      const r = await api.usPrepareUrl(input.value);
+      el.loading = false;
+      return showExtResult(r, 'install');
+    }
+    case 'us-analyze-code': {
+      const d = S.modal.draft;
+      const code = $('#dialog [data-f="us-code"]');
+      if (!code?.value.trim()) {
+        code?.focus();
+        return toast('Cole o código do script.');
+      }
+      el.loading = true;
+      const r = d.updateId ? await api.usPrepareUpdateCode(d.updateId, code.value) : await api.usPrepareCode(code.value);
+      el.loading = false;
+      return showExtResult(r, d.updateId ? 'update' : 'install');
+    }
+    case 'us-update': {
+      el.loading = true;
+      const r = await api.usPrepareUpdate(id);
+      el.loading = false;
+      return showExtResult(r, 'update');
+    }
+    case 'us-update-paste':
+      return openModal('us-add', { updateId: id, name: el.dataset.name });
+    case 'us-rollback': {
+      if (!(await ask({ title: `Voltar para a versão ${el.dataset.version}?`, text: 'As contas onde o script roda recarregam. Dá para voltar para a versão nova depois.', ok: 'Voltar para ela' }))) return;
+      const r = await api.usRollback(id);
+      if (!r.ok) return toast(r.error);
+      await backToExtensions();
+      return toast('Voltei para a versão anterior.', 'info');
+    }
+    case 'us-remove': {
+      if (!(await ask({ title: `Remover ${el.dataset.name}?`, text: 'Ele sai de todas as contas (que recarregam) e o arquivo e os dados guardados dele são apagados. Dá para instalar de novo depois.', ok: 'Remover', danger: true }))) return;
+      const r = await api.usRemove(id);
+      if (!r.ok) return toast(r.error);
+      await backToExtensions();
+      return toast('Script removido.', 'info');
+    }
     case 'ext-analyze': {
       const input = $('#dialog [data-f="ext-input"]');
       if (!input?.value.trim()) {
@@ -2065,12 +2189,15 @@ async function onAction(act, el) {
       if (!$('#dialog [data-f="ext-ack"]')?.checked) return toast('Marque que você entendeu o risco para continuar.');
       el.loading = true;
       const keys = $$('#dialog [data-ext-pick]').filter((c) => c.checked).map((c) => c.dataset.key);
-      const r = d.mode === 'update' ? await api.extConfirmUpdate(d.token) : await api.extConfirm(d.token, keys);
+      const sc = d.summary.kind === 'script';
+      const r = d.mode === 'update' ? await (sc ? api.usConfirmUpdate : api.extConfirmUpdate)(d.token) : await (sc ? api.usConfirm : api.extConfirm)(d.token, keys);
       el.loading = false;
       if (!r.ok) return toast(r.error);
+      S.extTab = sc ? 'scripts' : 'ext';
       await refreshConfig();
       await backToExtensions();
       render();
+      if (sc) return toast(d.mode === 'update' ? 'Script atualizado.' : keys.length ? `Script instalado e ligado em ${keys.length} ${keys.length === 1 ? 'conta' : 'contas'}.` : 'Script instalado, desligado. Ligue nas contas que quiser.', 'info');
       return toast(d.mode === 'update' ? 'Extensão atualizada.' : keys.length ? `Extensão instalada e ligada em ${keys.length} ${keys.length === 1 ? 'conta' : 'contas'}.` : 'Extensão instalada, desligada. Ligue nas contas que quiser.', 'info');
     }
     case 'ext-rollback': {
@@ -2305,7 +2432,7 @@ async function init() {
   const st = await api.getState();
   Object.assign(S, { config: st.config, presets: st.presets, runtime: st.runtime, version: st.version, openAtLogin: st.openAtLogin, rev: st.rev, groupColors: st.groupColors });
   if (st.idlelive) S.idlelive = st.idlelive;
-  S.ext = await api.extensionsList();
+  [S.ext, S.us] = await Promise.all([api.extensionsList(), api.userscriptsList()]);
   S.vault = await api.vaultState();
   // Espera a janela (já na página) ficar pronta, para as boas-vindas abrirem. O carregador do Web Awesome
   // só busca um componente quando ele aparece na página, então não dá para esperar os que ainda não foram desenhados.
@@ -2363,6 +2490,18 @@ async function init() {
       const [gid, aid] = sw.dataset.key.split(':');
       const asleep = gameById(gid)?.accounts.find((x) => x.id === aid)?.sleeping;
       return toast(asleep ? 'Pronto. Vale quando você acordar a conta.' : `${sw.checked ? 'Ligada' : 'Desligada'}. A conta está recarregando.`, 'info');
+    }
+    const usw = e.target.closest?.('[data-us-account]');
+    if (usw) {
+      const r = await api.usSetAccount(usw.dataset.usAccount, usw.dataset.key, usw.checked);
+      if (!r.ok) {
+        usw.checked = !usw.checked;
+        return toast(r.error);
+      }
+      S.us = await api.userscriptsList();
+      const [gid, aid] = usw.dataset.key.split(':');
+      const asleep = gameById(gid)?.accounts.find((x) => x.id === aid)?.sleeping;
+      return toast(asleep ? 'Pronto. Vale quando você acordar a conta.' : `${usw.checked ? 'Ligado' : 'Desligado'}. A conta está recarregando.`, 'info');
     }
     const f = e.target.dataset?.f || '';
     // Cofre: ligar o 2FA mostra o aviso e o campo do segredo; o tempo de trancar vale na hora.

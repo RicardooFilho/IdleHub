@@ -89,6 +89,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 - A lista tem um card por extensão (`.ext-card`): nome, versão, selo de compatibilidade (`success` Testada, `neutral` Deve funcionar, `warning` Funciona em parte, `danger` Não compatível), selo de risco (`success`, `warning`), a versão travada (primeiros 8 caracteres do hash), um `wa-switch` **por conta** (agrupadas por jogo, com a sigla na cor do jogo) e os botões **Procurar atualização** (`brand` com contorno), **Voltar para a versão…** e **Remover** (`plain`; remover pede `ask({ danger: true })`). O interruptor vale na hora e a conta recarrega.
 - O **aviso de banimento** é um `wa-callout variant="warning"` fixo, na lista e na revisão. A revisão mostra, nesta ordem: o que ela pode fazer (permissões, com selo baixo/médio/alto), sites e rede, sinais de automação, o aviso, as contas para ligar (`wa-checkbox`, nenhuma marcada) e a caixa **Entendi o risco…**, sem a qual **Instalar** (ou **Atualizar**) não segue. Na atualização entra o bloco **O que mudou** antes das permissões, com callout `warning` quando a versão nova ganha acesso. Extensão que o IdleHub recusa mostra só um callout `danger` com os motivos e o botão **Voltar**.
 - Tudo é calculado no processo principal (`src/main/extrisk.js`); a interface só desenha.
+- **Scripts de usuário** usam a mesma janela, em outra aba. Duas abas no topo da janela **Extensões e scripts** (`extTabs()`: `wa-button-group` com `wa-button size="s"`, o da aba aberta `variant="brand"` cheio e o outro `neutral` com contorno, `S.extTab`). A aba **Scripts de usuário** (`scriptsHtml()`) repete o card da extensão (`.ext-card`): nome, versão, selo do mundo em que roda (`neutral` Mundo à parte, `warning` Mundo da página), selo de risco, versão travada, **Roda …** (`@run-at` em palavras), um `wa-switch` por conta e **Procurar atualização** (só se o script veio de um link), **Atualizar colando o código** (`wa-textarea`), **Voltar para a versão…** e **Remover**. **Instalar script** abre `usAddHtml()`: `wa-input` do link e `wa-textarea` do código, cada um com **Ver o que ele faz**. A revisão é a mesma `extRiskHtml()` (o `summary.kind === 'script'` troca "ela" por "ele" e mostra `@connect` como endereço "fora do jogo"); na atualização o bloco **O que mudou** mostra as linhas novas e removidas do código em vez da lista de arquivos. Ícones: `code` (aba de scripts), `paste` (atualizar colando).
 
 ### Cofre de logins
 
@@ -158,11 +159,13 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `gamepad` | contas dos jogos |
 | `power-off` | Painel parado |
 | `puzzle-piece` | extensões do Chrome |
-| `clock-rotate-left` | voltar para a versão anterior da extensão |
+| `clock-rotate-left` | voltar para a versão anterior da extensão ou do script |
 | `key` | cofre de logins |
 | `lock` / `lock-open` | trancar / destrancar o cofre (senha mestra) |
 | `eye` / `copy` | mostrar por alguns segundos / copiar um dado do cofre |
 | `right-to-bracket` | preencher o login da conta com o cofre |
+| `code` | aba de scripts de usuário |
+| `paste` | atualizar o script colando o código |
 
 - O ícone do Painel na barra lateral é o pixel art do IdleLive (`icon.png`, `image-rendering: pixelated`).
 - Ícone sem texto do lado precisa de `label` (leitor de tela) e o botão em volta precisa de `title`.

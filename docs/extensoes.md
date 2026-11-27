@@ -204,7 +204,28 @@ userscript como plano B para o que é só código de página.
 - **Aceite:** `/hunt` instalada pela loja carrega nas contas escolhidas, mede-se RAM/CPU com 4 contas, e os
   jogos continuam rodando minimizados (regra principal).
 
-### TAG-35: scripts de usuário
+### TAG-35: scripts de usuário (feito)
+
+> **Status:** implementado (`src/main/userscripts.js`, `userscript-store.js`, `netfetch.js`; aba **Scripts de usuário** na janela Extensões). As fases 1 e 2 abaixo
+> foram entregues juntas. O que ficou **diferente do plano** e por quê:
+>
+> - **Injeção pelo preload, não por `webContents.executeJavaScript` do main:** o preload (`src/preload/game.js`) pergunta por `sendSync` quais scripts rodam
+>   *naquela* página da conta (o main confere conta, site do jogo, `@match` e o hash do arquivo) e executa cada um na hora do `@run-at`. Só assim o
+>   `document-start` roda antes do jogo, e a recarga/navegação da conta reinjeta sozinha. Sem o login do Google (nem o pedido é feito).
+> - **`@grant none` (ou sem `@grant`) = mundo da página** (`webFrame.executeJavaScript`); **com `GM_*` = mundo isolado, um por script**
+>   (`webFrame.executeJavaScriptInIsolatedWorld`), com uma ponte `idleHubGM` criada por `contextBridge.exposeInIsolatedWorld`: ela só existe *naquele* mundo,
+>   nunca no `window` da página (conferido no app: a página vê `typeof idleHubGM === 'undefined'`), e cada ponte só fala em nome do próprio script.
+>   Todo pedido da ponte é conferido de novo no main (conta ligada, frame principal, página que casa, `@grant` pedido).
+> - **`unsafeWindow`** só existe quando o script roda no mundo da página (é a própria `window`). Junto com `GM_*` fica indefinido (o mundo isolado não enxerga
+>   as variáveis do jogo, e expor o mundo da página violaria a regra do AGENTS.md); a tela avisa "Funciona em parte". Foi o que sobrou do **PokeIdle App**.
+> - **`@require` e `@resource` são recusados** (código baixado de outro site poderia mudar depois do "sim"; a versão travada perderia o sentido). A tela diz para
+>   usar uma versão do script com tudo dentro do arquivo. Fica para uma versão futura (baixar, travar o hash do `@require` e mostrar no resumo).
+> - **`GM_xmlhttpRequest`:** só para os hosts do `@connect` (e subdomínios; `self` = o site da página; `localhost` e IPs só se declarados; `*` é recusado na
+>   instalação), sem cookies, sem cabeçalhos `Cookie`/`Host`/`Origin`/`Sec-*`, com limites (60 s, 2 MB de corpo, 10 MB de resposta, 4 ao mesmo tempo) e cada
+>   redirecionamento conferido *antes* de ser seguido. O `net.fetch` do Electron não aceita `redirect: 'manual'`, então há um adaptador sobre `net.request`
+>   (`netfetch.js`). Cancelam sozinhos ao dormir, otimizar, desligar ou remover.
+> - **Atualização:** pelo `@downloadURL`/`@updateURL` (`.meta.js` vira `.user.js`) ou pelo link de instalação, só em Greasy Fork, OpenUserJS e GitHub; ou **colando o código novo**.
+> - **Não feito:** menu do script (`GM_registerMenuCommand` é um vazio), `GM_openInTab`/`GM_download`/`GM_setClipboard`, scripts em `iframe`, `@include` com expressão regular.
 
 - **Fase 1 (`@grant none`):** parser do cabeçalho (`@name`, `@match`, `@exclude`, `@run-at`, `@grant`),
   injeção no mundo da página a partir do preload (o texto do script vem por IPC, pois o preload é `sandbox`) e

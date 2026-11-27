@@ -5,8 +5,9 @@
 //  3) sem chave de acesso (passkey): evita a janela do Windows Hello pedindo
 //     chave de segurança no login do Google; o site cai no login com senha;
 //  4) no login do Google, se apresenta como Firefox (o Google bloqueia apps);
-//  5) anota quando os WebSockets do jogo abrem, recebem dados e fecham (só horários).
-const { webFrame } = require('electron');
+//  5) anota quando os WebSockets do jogo abrem, recebem dados e fecham (só horários);
+//  6) roda os scripts de usuário que a pessoa ligou nesta conta (veja o fim do arquivo).
+const { webFrame, ipcRenderer, contextBridge } = require('electron');
 
 function patch() {
   if (window.__idleHub) return;
@@ -134,3 +135,61 @@ function patch() {
 }
 
 webFrame.executeJavaScript(`(${patch.toString()})()`).catch(() => {});
+
+// 6) scripts de usuário (TAG-35, src/main/userscripts.js). O processo principal diz quais scripts rodam NESTA
+//    página da conta (a lista já vem conferida: conta, site do jogo e hash do arquivo). Scripts com GM_* rodam
+//    num mundo isolado próprio, com uma ponte estreita (`idleHubGM`) que só existe lá dentro, nunca na página;
+//    os com `@grant none` rodam no mundo da página, como pede a regra deles. A página não enxerga nada disso.
+function runUserScripts() {
+  if (/(^|\.)accounts\.(google|youtube)\.com$/.test(location.hostname)) return; // login do Google: nada de scripts, nem o pedido
+  let plan;
+  try {
+    plan = ipcRenderer.sendSync('us:plan');
+  } catch (e) {
+    return;
+  }
+  if (!Array.isArray(plan) || !plan.length) return;
+  const report = (id) => (e) => {
+    try {
+      ipcRenderer.send('us:error', id, String((e && e.message) || e));
+    } catch (x) {}
+  };
+  // Cada script tem a própria ponte: o mundo dele só consegue falar em nome dele.
+  const bridgeOf = (id) => ({
+    set: (n, v) => ipcRenderer.send('us:set', id, String(n), String(v)),
+    del: (n) => ipcRenderer.send('us:del', id, String(n)),
+    xhr: (reqId, req) => ipcRenderer.invoke('us:xhr', id, String(reqId), req),
+    abort: (reqId) => ipcRenderer.send('us:abort', id, String(reqId)),
+    notify: (o) => ipcRenderer.send('us:notify', id, o),
+  });
+  const run = (s) => {
+    try {
+      let p;
+      if (s.mode === 'isolated') {
+        contextBridge.exposeInIsolatedWorld(s.world, 'idleHubGM', bridgeOf(s.id));
+        try {
+          webFrame.setIsolatedWorldInfo(s.world, { name: 'IdleHub: ' + s.name });
+        } catch (e) {}
+        p = webFrame.executeJavaScriptInIsolatedWorld(s.world, [{ code: s.code }]);
+      } else {
+        p = webFrame.executeJavaScript(s.code);
+      }
+      p.catch(report(s.id));
+    } catch (e) {
+      report(s.id)(e);
+    }
+  };
+  const start = plan.filter((s) => s.runAt === 'document-start');
+  const end = plan.filter((s) => s.runAt === 'document-end' || s.runAt === 'document-body');
+  const idle = plan.filter((s) => s.runAt !== 'document-start' && s.runAt !== 'document-end' && s.runAt !== 'document-body');
+  start.forEach(run);
+  const afterParse = () => {
+    end.forEach(run);
+    setTimeout(() => idle.forEach(run), 0);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', afterParse, { once: true });
+  else afterParse();
+}
+try {
+  runUserScripts();
+} catch (e) {}
