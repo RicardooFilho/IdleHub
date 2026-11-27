@@ -302,6 +302,7 @@ function registerIpc() {
       watchdogIntervalSec: num(s.watchdogIntervalSec, d.watchdogIntervalSec, 10, 600),
       reloadAfterFailures: num(s.reloadAfterFailures, d.reloadAfterFailures, 1, 10),
       memoryLimitMB: num(s.memoryLimitMB, d.memoryLimitMB, 0, 16000),
+      optimizeEveryHours: num(s.optimizeEveryHours, d.optimizeEveryHours, 0, 168),
       backgroundFps: num(s.backgroundFps, d.backgroundFps, 0, 144),
       mosaicFps: num(s.mosaicFps, d.mosaicFps, 0, 144),
       tileBaseWidth: num(s.tileBaseWidth, d.tileBaseWidth, 480, 3840),

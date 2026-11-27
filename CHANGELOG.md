@@ -5,12 +5,17 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 ## 27/11/2026
 
 ### Novidades
+- **Otimizar conta**: fecha a conta e abre de novo num processo novo, no mesmo login e na mesma página em que ela estava (se estava numa tela de outro site ou de login, volta ao link do jogo). Devolve mais memória do que recarregar, porque o processo antigo some de vez. Fica em **Otimizar (liberar memória)** no topo da conta (e no ícone da vassoura de cada conta) e em **Otimizar todas** no topo do jogo, que otimiza uma conta por vez, com 5 segundos entre elas. Aparece na Atividade e não conta como queda.
+- **Otimizar sozinho**: em **Configurações → Watchdog**, **Otimizar cada conta a cada (horas)** (0 = desligado) reabre cada conta de tempos em tempos. O IdleHub só otimiza contas funcionando bem, no máximo uma a cada 20 segundos (para não reabrir todas juntas) e nunca uma conta aberta há menos de 10 minutos.
 - **Reconectando preso**: se o jogo ficar com a tela de "Reconectando…" por mais de 3 minutos seguidos, o IdleHub recarrega a conta sozinho. Enquanto isso, ela aparece como **Reconectando…**, sem recarregar antes da hora. Passa pelas mesmas regras de segurança das outras recargas (sem internet não recarrega, e se a conta cair 5 vezes em 10 minutos o IdleHub desiste e avisa).
 - Os textos que indicam isso já vêm preenchidos nos jogos prontos e podem ser editados na tela do jogo, em **Textos de reconectando**.
 - **Atalhos de teclado**, valem com a janela do IdleHub em foco, até com o cursor dentro de um jogo ou do Painel: **Ctrl + 1 a 9** vai para a conta 1 a 9 da tela, **Ctrl + Tab** e **Ctrl + Shift + Tab** vão para a próxima e a anterior, **F5** recarrega a conta aberta e **Ctrl + M** deixa todas as contas sem som (ou libera o som). A lista fica em **Configurações → Atalhos de teclado**.
 - **Avisos no celular (Discord)**: cole o link de um webhook do Discord em **Configurações → Avisos no celular** e o IdleHub manda para o canal os mesmos avisos do Windows (conta que caiu, alerta disparado, sem internet…). Tem o botão **Enviar teste** para conferir. Não usa servidor nosso: o IdleHub fala direto com o Discord. O interruptor vale mesmo com as notificações do Windows desligadas.
 - **Avisos no celular (Telegram)**: crie um bot no **@BotFather** (`/newbot`), cole o token em **Configurações → Avisos no celular → Telegram**, abra o seu bot e mande `/start`. O IdleHub descobre a conversa sozinho (botão **Procurar conversa**) e manda os mesmos avisos do Windows, com o título em negrito. Tem o botão **Enviar teste**. Sem servidor nosso, e o interruptor vale mesmo com as notificações do Windows desligadas.
 - O link do webhook e o token do bot do Telegram ficam criptografados neste PC (arquivo `secrets.json`, protegido pelo Windows) e nunca aparecem de novo na tela, no `config.json` nem nos registros.
+
+### Mudanças
+- O limite de memória (**Otimizar se a conta passar de (MB)**, 1500 por padrão) agora **otimiza** a conta em vez de só recarregar a página: recarregar no mesmo processo quase não devolvia memória. Passou a valer só para conta funcionando bem, e não manda mais notificação (só aparece na Atividade).
 
 ## 26/11/2026
 

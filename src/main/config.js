@@ -7,7 +7,8 @@ const path = require('path');
 const DEFAULT_SETTINGS = {
   watchdogIntervalSec: 30, // de quanto em quanto tempo cada conta é verificada
   reloadAfterFailures: 2, // verificações seguidas sem resposta antes de recarregar
-  memoryLimitMB: 1500, // recarrega a conta se passar disso (0 = sem limite)
+  memoryLimitMB: 1500, // otimiza a conta (reabre num processo novo) se passar disso (0 = sem limite)
+  optimizeEveryHours: 0, // otimiza cada conta a cada tantas horas (0 = desligado)
   // FPS só limita a animação; os temporizadores do jogo rodam em 100% mesmo escondido.
   // 30 é seguro também para jogos que contam o progresso por quadro desenhado.
   backgroundFps: 30, // FPS das contas escondidas (0 = sem limite)
