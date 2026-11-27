@@ -5,6 +5,7 @@ Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes
 ## 26/11/2026
 
 ### Novidades
+- Os jogos não abrem mais janelas e anúncios sozinhos: só abre o que você clicou. Downloads só com clique, e programas (`.exe` e parecidos) nunca são baixados. O login com Google continua funcionando.
 - Quando o PC volta da suspensão, o IdleHub recarrega as contas sozinho (uma de cada vez) para elas não ficarem paradas.
 - Quando o jogo avisa que a conta foi aberta em outro lugar (outra aba, celular ou outro PC), o IdleHub não recarrega mais por cima e derruba a outra sessão: ele pausa o watchdog daquela conta por 10 minutos e avisa. A conta aparece como **Aberta em outro lugar**.
 - Os textos que indicam isso já vêm preenchidos nos jogos prontos e podem ser editados na tela do jogo, em **Textos de conta aberta em outro lugar**. Recarregar a conta à mão, ou dormir e acordar, tira a pausa.

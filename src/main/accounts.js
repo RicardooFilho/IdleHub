@@ -2,6 +2,7 @@
 // sessão (cookies/login separados), mais o watchdog e os alertas.
 const { WebContentsView, session } = require('electron');
 const path = require('path');
+const { isUserInput, isDangerousFile, shouldAllowPopup, shouldAllowDownload } = require('./guard');
 const {
   CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, classifyPage, checkInternet,
 } = require('./recovery');
@@ -12,6 +13,12 @@ const MIN_RELOAD_GAP_MS = 60000;
 // Conta aberta em outro lugar: o watchdog fica longe dela por esse tempo, para
 // não derrubar a outra sessão recarregando por cima.
 const SESSION_TAKEN_PAUSE_MS = 10 * 60 * 1000;
+const BLOCKED_LOG_GAP_MS = 60000; // aviso de janela bloqueada: no máximo 1 por minuto por conta
+
+// Quem recebe o último clique/tecla de cada página (conta ou pop-up), para o
+// controle de janelas e downloads. E as sessões que já escutam downloads.
+const inputOf = new WeakMap();
+const downloadGuarded = new WeakSet();
 
 const partitionFor = (gameId, accountId) => `persist:acc-${gameId}-${accountId}`;
 
@@ -222,11 +229,8 @@ class AccountManager {
     rt.challengeNotified = false;
 
     const wc = view.webContents;
-    wc.setWindowOpenHandler(() => ({
-      action: 'allow',
-      // Pop-ups (ex.: login com Google) usam a mesma sessão e o mesmo preload da conta.
-      overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, webPreferences },
-    }));
+    this.guardWindows(rt, wc, rt, webPreferences);
+    this.guardDownloads(wc.session, rt.key);
     wc.on('did-start-loading', () => {
       rt.status = 'loading';
       rt.loadStart = Date.now();
@@ -282,6 +286,56 @@ class AccountManager {
       rt.status = 'no-url';
     }
     this.applyLayout();
+  }
+
+  // Só abre janela nova o que a pessoa clicou (anúncios que abrem sozinhos são
+  // barrados). Vale também dentro dos pop-ups que foram permitidos. `owner`
+  // guarda o último clique da página (a própria conta ou o pop-up).
+  guardWindows(rt, wc, owner, webPreferences) {
+    inputOf.set(wc, owner);
+    wc.on('input-event', (_e, input) => {
+      if (isUserInput(input)) owner.lastInputAt = Date.now();
+    });
+    wc.setWindowOpenHandler(({ url }) => {
+      const now = Date.now();
+      if (shouldAllowPopup({ url, now, lastInputAt: owner.lastInputAt })) {
+        return {
+          action: 'allow',
+          // Pop-ups (ex.: login com Google) usam a mesma sessão e o mesmo preload da conta.
+          overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, webPreferences },
+        };
+      }
+      if (!rt.blockedLogAt || now - rt.blockedLogAt >= BLOCKED_LOG_GAP_MS) {
+        rt.blockedLogAt = now;
+        this.log(rt, 'Bloqueei uma janela que o jogo tentou abrir sozinho (provável anúncio).', 'info');
+      }
+      return { action: 'deny' };
+    });
+    wc.on('did-create-window', (win) => {
+      // O pop-up nasce de um clique; herda o último para o que ele abrir logo em seguida.
+      this.guardWindows(rt, win.webContents, { lastInputAt: owner.lastInputAt }, webPreferences);
+    });
+  }
+
+  // Downloads só com clique; programas (.exe e parecidos) nunca. Uma vez por
+  // sessão: a sessão da conta é a mesma quando ela dorme e acorda.
+  guardDownloads(ses, key) {
+    if (downloadGuarded.has(ses)) return;
+    downloadGuarded.add(ses);
+    ses.on('will-download', (e, item, wc) => {
+      const rt = this.rt.get(key);
+      const filename = item.getFilename();
+      const lastInputAt = Math.max(rt?.lastInputAt || 0, inputOf.get(wc)?.lastInputAt || 0);
+      if (shouldAllowDownload({ filename, now: Date.now(), lastInputAt })) return; // segue o padrão: janela de "salvar como"
+      e.preventDefault();
+      item.cancel();
+      if (!rt) return;
+      if (isDangerousFile(filename)) {
+        this.alert(rt, `Bloqueei o download de um programa (${filename}). O IdleHub nunca baixa programas dentro dos jogos.`);
+      } else {
+        this.log(rt, `Bloqueei um download que o jogo tentou fazer sozinho (${filename}).`, 'info');
+      }
+    });
   }
 
   destroyView(rt) {
