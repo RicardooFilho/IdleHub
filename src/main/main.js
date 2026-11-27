@@ -2,7 +2,8 @@ const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, shel
 const path = require('path');
 const { pathToFileURL } = require('url');
 const config = require('./config');
-const { PRESETS, gameFromPreset, sanitizeGame, migrateSessionTaken, migrateReconnecting } = require('./games');
+const { BUNDLED, PRESETS, gameFromPreset, sanitizeGame, migrateSessionTaken, migrateReconnecting } = require('./games');
+const { createCatalog, syncGame, baseOf } = require('./catalog');
 const { AccountManager } = require('./accounts');
 const { IdleLive } = require('./idlelive');
 const { PanelView } = require('./panel');
@@ -76,6 +77,7 @@ const tracker = new MetricsTracker(); // histórico de CPU e memória (metrics.j
 let events = null;
 let away = null;
 let dailyJob = null;
+let catalog = null; // lista de jogos prontos (do app + baixada da internet)
 let quitting = false;
 let trayHintShown = false;
 let emitQueued = false;
@@ -237,7 +239,7 @@ function createWindow() {
 function registerIpc() {
   ipcMain.handle('state:get', () => ({
     config: cfg,
-    presets: PRESETS,
+    presets: catalog.presets(),
     runtime: mgr.snapshot(),
     version: app.getVersion(),
     dataPath: app.getPath('userData'),
@@ -306,7 +308,7 @@ function registerIpc() {
 
   ipcMain.handle('config:onboard', (_e, selections) => {
     for (const sel of selections || []) {
-      const p = PRESETS.find((x) => x.preset === sel.preset);
+      const p = catalog.preset(sel.preset);
       if (!p) continue;
       cfg.games.push(sanitizeGame(gameFromPreset(p, { url: sel.url, accounts: Number(sel.accounts) || 1 })));
     }
@@ -319,6 +321,12 @@ function registerIpc() {
   ipcMain.handle('game:save', (_e, raw) => {
     const game = sanitizeGame(raw);
     const idx = cfg.games.findIndex((g) => g.id === game.id);
+    // Guarda o padrão do catálogo de quando o jogo foi criado (veja syncGame em catalog.js).
+    if (game.preset && !game.catalogBase) {
+      const p = catalog.preset(game.preset);
+      const base = (idx >= 0 && cfg.games[idx].catalogBase) || (p ? baseOf(p) : null);
+      if (base) game.catalogBase = base;
+    }
     if (idx >= 0) {
       const removed = cfg.games[idx].accounts.filter((a) => !game.accounts.some((b) => b.id === a.id));
       cfg.games[idx] = game;
@@ -451,20 +459,46 @@ function checkUpdates() {
 // "LoL Idle" virou "LoLdle", o mesmo nome do Painel (IdleLive). Só troca se o nome não foi mudado à mão.
 function migrateConfig() {
   let changed = false;
+  const presets = catalog.presets();
   for (const g of cfg.games) {
     if (g.preset === 'lolidle' && g.name === 'LoL Idle') {
       g.name = 'LoLdle';
       changed = true;
     }
-    if (migrateSessionTaken(g)) changed = true;
-    if (migrateReconnecting(g)) changed = true;
+    if (migrateSessionTaken(g, presets)) changed = true;
+    if (migrateReconnecting(g, presets)) changed = true;
   }
   if (changed) saveConfig();
 }
 
+// Põe no jogo o que o catálogo atualizou (só o que a pessoa não mudou) e avisa a interface.
+function syncCatalog() {
+  let changed = false;
+  for (const g of cfg.games) {
+    const p = catalog.preset(g.preset);
+    const factory = PRESETS.find((x) => x.preset === g.preset); // jogo sem cópia do padrão: vale o de fábrica
+    if (p && syncGame(g, p, factory)) changed = true;
+  }
+  if (changed) saveConfig();
+  return changed;
+}
+
+function onCatalogChange() {
+  syncCatalog();
+  if (win && !win.isDestroyed()) win.webContents.send('catalog', { presets: catalog.presets(), config: cfg });
+}
+
 function start() {
   cfg = config.load();
+  catalog = createCatalog({
+    bundled: BUNDLED,
+    file: path.join(process.env.IDLEHUB_DATA || app.getPath('userData'), 'catalog.json'),
+    onChange: onCatalogChange,
+    log: (...a) => console.warn('[catalog]', ...a),
+  });
+  catalog.load();
   migrateConfig();
+  syncCatalog();
   fixLoginItem();
   serveUi();
   createWindow();
@@ -497,6 +531,7 @@ function start() {
   createTray();
   setInterval(emitState, 3000);
   checkUpdates();
+  catalog.start(); // baixa a lista de jogos agora e a cada 6 horas
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -508,6 +543,7 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true;
     away?.dispose();
     dailyJob?.dispose();
+    catalog?.stop();
     events?.add({ type: 'app-stop' });
     events?.close(); // grava o que faltava antes de fechar
     mgr?.shutdown();

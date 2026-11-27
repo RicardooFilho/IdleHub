@@ -72,6 +72,19 @@ const fmtMem = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1).replace('.', ',') + 
 const fmtCpu = (n) => (n < 10 ? (Math.round(n * 10) / 10).toFixed(1).replace('.', ',') : Math.round(n)) + '%';
 const keyOf = (g, a) => `${g.id}:${a.id}`;
 const gameById = (id) => S.config.games.find((g) => g.id === id);
+// Perfil do catálogo de um jogo (tem o limite de contas e o aviso de punição). Jogo de link livre não tem.
+const presetOf = (g) => (g.preset ? S.presets.find((p) => p.preset === g.preset) || null : null);
+
+// Aviso de limite de contas: pergunta antes de passar do limite do jogo (não bloqueia: a pessoa decide).
+function askOverLimit(name, p, count) {
+  if (!p?.maxAccounts || count <= p.maxAccounts) return true;
+  return ask({
+    title: `Passar de ${p.maxAccounts} contas em ${name}?`,
+    text: `${p.banWarning || `O limite recomendado para este jogo é ${p.maxAccounts} contas.`} Dá para continuar, mas é por sua conta e risco.`,
+    ok: 'Adicionar mesmo assim',
+    danger: true,
+  });
+}
 const icon = (name, label = '') => `<wa-icon name="${name}"${label ? ` label="${esc(label)}"` : ''}></wa-icon>`;
 // Botão só com ícone: label (leitor de tela) + title (dica), como pede o DESIGN.md.
 const iconBtn = (action, name, title, extra = '') =>
@@ -208,7 +221,21 @@ function renderTop() {
       ${btn('sleep', 'moon', 'Dormir', `data-key="${it.key}"`)}`;
   }
   $('#top').innerHTML = `<h1>${title}</h1><div class="stats" id="stats"></div><div class="top-actions">${actions}</div>`;
+  renderGameNote();
   updateStats();
+}
+
+// Linha de aviso do jogo aberto: limite de contas e o que o catálogo diz sobre punição.
+function renderGameNote() {
+  const el = $('#game-note');
+  const g = S.view.kind === 'game' ? gameById(S.view.gameId) : null;
+  const p = g && presetOf(g);
+  const parts = [];
+  if (p?.maxAccounts) parts.push(`Limite recomendado: ${p.maxAccounts} contas${g.accounts.length > p.maxAccounts ? ` (você tem ${g.accounts.length})` : ''}.`);
+  if (p?.banWarning) parts.push(p.banWarning);
+  el.hidden = !parts.length;
+  el.classList.toggle('over', !!p?.maxAccounts && g.accounts.length > p.maxAccounts);
+  el.innerHTML = parts.length ? `${icon('triangle-exclamation')}<span>${esc(parts.join(' '))}</span>` : '';
 }
 
 function bestCols(n, W, H) {
@@ -620,7 +647,8 @@ function gameHtml(d) {
       </div>
 
       <div class="form-block">
-        <span class="form-label">Contas (${d.accounts.length}/12)</span>
+        <span class="form-label">Contas (${d.accounts.length}/${presetOf(d)?.maxAccounts ? `${presetOf(d).maxAccounts} recomendadas` : 12})</span>
+        ${presetOf(d)?.banWarning ? `<wa-callout variant="warning" size="s"><wa-icon slot="icon" name="triangle-exclamation"></wa-icon>${esc(presetOf(d).banWarning)}</wa-callout>` : ''}
         ${d.accounts
           .map(
             (a, i) => `<div class="acc-row" data-i="${i}">
@@ -1204,6 +1232,7 @@ async function onAction(act, el) {
     case 'onboard-done': {
       collectOnboard();
       const sel = S.modal.draft.filter((p) => p.on);
+      for (const s of sel) if (!(await askOverLimit(s.name, S.presets.find((x) => x.preset === s.preset), s.accounts))) return;
       S.config = await api.onboard(sel);
       S.modal = null;
       S.view = { kind: 'all' };
@@ -1223,6 +1252,7 @@ async function onAction(act, el) {
     }
     case 'acc-add':
       collectGame();
+      if (!(await askOverLimit(S.modal.draft.name || 'este jogo', presetOf(S.modal.draft), S.modal.draft.accounts.length + 1))) return;
       S.modal.draft.accounts.push({ id: '', name: `Conta ${S.modal.draft.accounts.length + 1}`, sleeping: false });
       return renderModalBody();
     case 'acc-del': {
@@ -1352,6 +1382,12 @@ async function init() {
     S.totalCpu = d.totalCpu || 0;
     if (d.idlelive) S.idlelive = d.idlelive;
     updateRuntime();
+  });
+  // Jogos novos (ou atualizados) do catálogo na internet: atualiza a lista sem esperar ninguém reabrir o app.
+  api.onCatalog((d) => {
+    S.presets = d.presets;
+    S.config = d.config;
+    if (!S.modal && !S.asking) render();
   });
   api.onFocusAccount(focusAccount);
   api.onShortcut(onShortcut);

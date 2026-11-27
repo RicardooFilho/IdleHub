@@ -64,6 +64,10 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 | Resposta rápida de uma ação (salvo, erro) | `toast(msg)` (erro) ou `toast(msg, 'info')` |
 | O que aconteceu com as contas (recargas, logouts, alertas) | Lista de **Atividade** (sino), alimentada pelo `log()` do `AccountManager`, e notificação do Windows. Não crie outra lista. |
 
+### Aviso do jogo
+
+- Jogo com limite de contas ou aviso de punição (vindos do catálogo) mostra uma faixa `#game-note` entre o cabeçalho e as contas: ícone `triangle-exclamation`, texto de 12px, fundo `surface-lowered`; em `warning` quando a pessoa já passou do limite. Na janela do jogo, o mesmo aviso vira `wa-callout variant="warning"` em Contas. Passar do limite pede confirmação com `ask()` ("Adicionar mesmo assim"), nunca bloqueia.
+
 ### Selos
 
 - `wa-badge pill`: `neutral` com contorno para resumos (rodando, dormindo, RAM); `warning` para problema ou alerta disparado; `danger` para contagem de problemas na barra lateral; `success` para o Painel rodando.

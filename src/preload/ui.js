@@ -25,5 +25,6 @@ contextBridge.exposeInMainWorld('idle', {
   onShortcut: (cb) => ipcRenderer.on('shortcut', (_e, s) => cb(s)),
   onAwaySummary: (cb) => ipcRenderer.on('away-summary', (_e, s) => cb(s)),
   onDailySummary: (cb) => ipcRenderer.on('daily-summary', (_e, s) => cb(s)),
+  onCatalog: (cb) => ipcRenderer.on('catalog', (_e, d) => cb(d)),
   onFocusAccount: (cb) => ipcRenderer.on('focus-account', (_e, k) => cb(k)),
 });

@@ -1,83 +1,16 @@
-// Perfis prontos de jogos. Cada perfil é só um ponto de partida: tudo pode
-// ser editado no app (link, contas, detecção de logout e alertas).
+// Perfis prontos dos jogos. Eles vêm do catálogo (catalog/games.json, que vai junto com o
+// app e também é baixado da internet: veja catalog.js). Cada perfil é só um ponto de partida:
+// tudo pode ser editado no app (link, contas, detecção de logout e alertas).
 const crypto = require('crypto');
+const { validateCatalog, toPreset, baseOf, SYNCED_FIELDS } = require('./catalog');
 
 const newId = () => crypto.randomUUID().replace(/-/g, '').slice(0, 10);
 
-// Frases (comparadas em minúsculas) com que os jogos avisam que a conta foi
-// aberta em outro lugar. Conservadoras de propósito: frases inteiras, nunca
-// palavras soltas como "sessão", para não pausar uma conta à toa.
-const SESSION_TAKEN_TEXTS = [
-  'aberta em outro lugar',
-  'conectado em outro lugar',
-  'logado em outro dispositivo',
-  'aberto em outra aba',
-  'aberta em outra aba',
-  'logged in elsewhere',
-  'logged in from another',
-  'opened in another tab',
-  'logged in on another device',
-  'session has been taken',
-];
+// O catálogo que vem junto com o app: vale sempre, mesmo sem internet e sem cópia baixada.
+const BUNDLED = validateCatalog(require('../../catalog/games.json'));
+if (!BUNDLED || !BUNDLED.games.length) throw new Error('catalog/games.json inválido');
 
-// Frases (em minúsculas) da tela de "Reconectando…" que alguns jogos mostram quando
-// perdem a conexão com o servidor. Também frases inteiras: "conexão" ou "connecting"
-// sozinhas aparecem em qualquer menu. Só vale se ficar assim por vários minutos.
-const RECONNECTING_TEXTS = [
-  'reconectando',
-  'tentando reconectar',
-  'tentando se reconectar',
-  'conexão perdida',
-  'reconnecting',
-  'trying to reconnect',
-  'attempting to reconnect',
-  'connection lost',
-  'lost connection to the server',
-];
-
-const PRESETS = [
-  {
-    preset: 'pokeidle',
-    name: 'PokeIdle',
-    short: 'PK',
-    color: '#e5484d',
-    url: 'https://pokeidle.io/',
-    suggestedAccounts: 4,
-    loggedOut: { urlIncludes: ['login'], textIncludes: [] },
-    sessionTaken: { textIncludes: SESSION_TAKEN_TEXTS },
-    reconnecting: { textIncludes: RECONNECTING_TEXTS },
-    watchers: [
-      // Exemplos desligados: ajuste o texto/seletor depois de olhar o jogo
-      // com "Inspecionar" e ligue.
-      { name: 'Shiny apareceu', kind: 'text', selector: '', pattern: 'shiny', op: '>=', value: 0, enabled: false },
-      { name: 'Lendário apareceu', kind: 'text', selector: '', pattern: 'lendário', op: '>=', value: 0, enabled: false },
-    ],
-  },
-  {
-    preset: 'lolidle',
-    name: 'LoLdle', // mesmo nome usado no Painel (IdleLive)
-    short: 'LoL',
-    color: '#c8a13a',
-    url: 'https://lolidle.com/jogar#entrar',
-    suggestedAccounts: 5,
-    loggedOut: { urlIncludes: ['login'], textIncludes: [] },
-    sessionTaken: { textIncludes: SESSION_TAKEN_TEXTS },
-    reconnecting: { textIncludes: RECONNECTING_TEXTS },
-    watchers: [],
-  },
-  {
-    preset: 'onepieceidle',
-    name: 'One Piece Idle',
-    short: 'OP',
-    color: '#3e7bfa',
-    url: 'https://oneidlepiece.com/entrar',
-    suggestedAccounts: 2,
-    loggedOut: { urlIncludes: ['login'], textIncludes: [] },
-    sessionTaken: { textIncludes: SESSION_TAKEN_TEXTS },
-    reconnecting: { textIncludes: RECONNECTING_TEXTS },
-    watchers: [],
-  },
-];
+const PRESETS = BUNDLED.games.map(toPreset);
 
 function makeAccounts(n, from = 1) {
   return Array.from({ length: n }, (_, i) => ({ id: newId(), name: `Conta ${from + i}`, sleeping: false }));
@@ -96,8 +29,15 @@ function gameFromPreset(p, { url, accounts } = {}) {
     sessionTaken: JSON.parse(JSON.stringify(p.sessionTaken)),
     reconnecting: JSON.parse(JSON.stringify(p.reconnecting)),
     watchers: p.watchers.map((w) => ({ ...w, id: newId() })),
+    catalogBase: baseOf(p), // o padrão do catálogo agora: só o que a pessoa não mudou é atualizado depois
   };
 }
+
+// O padrão do catálogo guardado no jogo (veja syncGame em catalog.js): só vale se tiver todos os campos.
+const validBase = (b) => {
+  if (!b || typeof b !== 'object' || !SYNCED_FIELDS.every((f) => f in b)) return null;
+  return JSON.parse(JSON.stringify(Object.fromEntries(SYNCED_FIELDS.map((f) => [f, b[f]]))));
+};
 
 // Limpa e valida um jogo vindo da tela de edição.
 function sanitizeGame(g) {
@@ -123,6 +63,7 @@ function sanitizeGame(g) {
     },
     sessionTaken: { textIncludes: list(g.sessionTaken?.textIncludes) },
     reconnecting: { textIncludes: list(g.reconnecting?.textIncludes) },
+    ...(validBase(g.catalogBase) ? { catalogBase: validBase(g.catalogBase) } : {}),
     watchers: (g.watchers || []).slice(0, 30).map((w) => ({
       id: str(w.id, 40) || newId(),
       name: str(w.name, 40) || 'Alerta',
@@ -140,9 +81,9 @@ function sanitizeGame(g) {
 // os de preset ganham os textos padrão; os de link livre ficam com a lista vazia
 // (ligado por quem quiser). Devolve true se mudou algo. Lista vazia salva de
 // propósito (o campo existe) nunca é refeita.
-function migrateSessionTaken(g) {
+function migrateSessionTaken(g, presets = PRESETS) {
   if (g.sessionTaken && Array.isArray(g.sessionTaken.textIncludes)) return false;
-  const p = PRESETS.find((x) => x.preset === g.preset);
+  const p = presets.find((x) => x.preset === g.preset);
   g.sessionTaken = { textIncludes: p ? [...p.sessionTaken.textIncludes] : [] };
   return true;
 }
@@ -150,11 +91,11 @@ function migrateSessionTaken(g) {
 // Mesma regra para os textos de "Reconectando…": jogos antigos de preset ganham o
 // padrão, os de link livre ficam com a lista vazia (recurso desligado até a pessoa
 // escolher os textos) e uma lista vazia salva de propósito nunca é refeita.
-function migrateReconnecting(g) {
+function migrateReconnecting(g, presets = PRESETS) {
   if (g.reconnecting && Array.isArray(g.reconnecting.textIncludes)) return false;
-  const p = PRESETS.find((x) => x.preset === g.preset);
+  const p = presets.find((x) => x.preset === g.preset);
   g.reconnecting = { textIncludes: p ? [...p.reconnecting.textIncludes] : [] };
   return true;
 }
 
-module.exports = { PRESETS, newId, gameFromPreset, sanitizeGame, makeAccounts, migrateSessionTaken, migrateReconnecting };
+module.exports = { BUNDLED, PRESETS, newId, gameFromPreset, sanitizeGame, makeAccounts, migrateSessionTaken, migrateReconnecting };
