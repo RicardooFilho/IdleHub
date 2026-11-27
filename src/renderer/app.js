@@ -8,6 +8,9 @@ const S = {
   presets: [],
   runtime: { accounts: {}, log: [] },
   totalMem: 0,
+  totalCpu: 0,
+  perf: null, // histórico de CPU e memória (IPC metrics:history), só carregado com a janela Desempenho aberta
+  perfAt: 0,
   view: loadView(), // panel | all | game | focus
   modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log', draft }
   asking: false,
@@ -63,6 +66,8 @@ const esc = (s) =>
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const fmt = (n) => n.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 const fmtMem = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1).replace('.', ',') + ' GB' : Math.round(mb) + ' MB');
+// CPU em % do PC inteiro (como o Gerenciador de Tarefas): uma casa decimal só abaixo de 10%.
+const fmtCpu = (n) => (n < 10 ? (Math.round(n * 10) / 10).toFixed(1).replace('.', ',') : Math.round(n)) + '%';
 const keyOf = (g, a) => `${g.id}:${a.id}`;
 const gameById = (id) => S.config.games.find((g) => g.id === id);
 const icon = (name, label = '') => `<wa-icon name="${name}"${label ? ` label="${esc(label)}"` : ''}></wa-icon>`;
@@ -162,6 +167,7 @@ function renderRail() {
   }
   h += `<button class="rail-btn add" data-action="add-game" title="Adicionar jogo">${icon('plus', 'Adicionar jogo')}</button>
     <div class="rail-spacer"></div>
+    <button class="rail-btn" data-action="open-perf" title="Desempenho: CPU e memória de cada conta">${icon('gauge-high', 'Desempenho')}</button>
     <button class="rail-btn" data-action="open-log" title="Atividade: recargas, logouts e alertas">${icon('bell', 'Atividade')}<wa-badge class="count" variant="danger" pill data-log-count hidden></wa-badge></button>
     <button class="rail-btn" data-action="open-settings" title="Configurações">${icon('gear', 'Configurações')}</button>`;
   $('#rail').innerHTML = h;
@@ -326,6 +332,7 @@ function updateRuntime() {
   updateStats();
   updateRail();
   if (S.modal?.kind === 'log') renderModalBody();
+  else if (S.modal?.kind === 'perf') refreshPerf();
 }
 
 // Atualiza bolinha, status, memória e valores de cada conta. Retorna true se
@@ -348,7 +355,11 @@ function refreshTiles() {
     const stEl = $('[data-status]', el);
     stEl.textContent = st === 'ok' ? '' : STATUS[st] || st;
     stEl.title = r.lastEvent || '';
-    $('[data-mem]', el).textContent = r.mem ? fmtMem(r.mem) : '';
+    const memEl = $('[data-mem]', el);
+    const memText = r.mem ? `CPU ${fmtCpu(r.cpu || 0)} · ${fmtMem(r.mem)}` : '';
+    if (memEl.textContent !== memText) memEl.textContent = memText;
+    memEl.title = r.heavy ? 'Conta pesada: usa muita CPU ou memória. Veja os detalhes em Desempenho.' : 'CPU (% do PC inteiro) · memória';
+    memEl.classList.toggle('heavy', !!r.heavy);
     const ws = (g.watchers || []).filter((w) => w.enabled);
     const vals = ws
       .map((w) => {
@@ -374,17 +385,19 @@ function updateStats() {
   let html;
   if (S.view.kind === 'panel') html = panelStats();
   else {
-    let running = 0, sleeping = 0, issues = 0, mem = 0;
+    let running = 0, sleeping = 0, issues = 0, mem = 0, heavy = 0;
     for (const { a, key } of scope()) {
       const r = rtOf(key, a);
       if (a.sleeping) sleeping++;
       else if (r.live) running++;
       if (ISSUES.has(r.status)) issues++;
       mem += r.mem || 0;
+      if (r.heavy) heavy++;
     }
     html = `${chip(`<b class="num">${running}</b>&nbsp;rodando`)}${chip(`<b class="num">${sleeping}</b>&nbsp;dormindo`)}
       ${issues ? `<wa-badge variant="warning" pill><b class="num">${issues}</b>&nbsp;com problema</wa-badge>` : ''}
-      ${chip(`RAM&nbsp;<b class="num">${fmtMem(mem)}</b>&nbsp;· app ${fmtMem(S.totalMem)}`, 'title="Memória das contas mostradas · total do app"')}`;
+      ${heavy ? `<wa-badge variant="warning" pill title="Contas usando muita CPU ou memória"><b class="num">${heavy}</b>&nbsp;${heavy === 1 ? 'pesada' : 'pesadas'}</wa-badge>` : ''}
+      ${chip(`RAM&nbsp;<b class="num">${fmtMem(mem)}</b>&nbsp;· app ${fmtMem(S.totalMem)}&nbsp;· CPU ${fmtCpu(S.totalCpu)}`, 'title="Memória das contas mostradas · memória do app · CPU do app inteiro (% do PC)"')}`;
   }
   if (el._html !== html) el.innerHTML = el._html = html;
 }
@@ -475,6 +488,7 @@ const MODAL_TITLES = {
   onboard: 'Bem-vindo ao IdleHub',
   settings: 'Configurações',
   log: 'Atividade',
+  perf: 'Desempenho',
 };
 
 function renderModal() {
@@ -500,9 +514,15 @@ function renderModalBody() {
     m.kind === 'onboard' ? onboardHtml(m.draft) :
     m.kind === 'game' ? gameHtml(m.draft) :
     m.kind === 'settings' ? settingsHtml(m.draft) :
-    m.kind === 'log' ? logHtml() : '';
+    m.kind === 'log' ? logHtml() :
+    m.kind === 'perf' ? perfHtml(m.draft) : '';
   const d = dlg();
-  if (d._html !== html) d.innerHTML = d._html = html;
+  if (d._html === html) return;
+  // Trocar o conteúdo zera a rolagem da janela: guarda e devolve (a lista de Desempenho se atualiza sozinha).
+  const body = d.shadowRoot?.querySelector('[part~="body"]');
+  const top = body?.scrollTop || 0;
+  d.innerHTML = d._html = html;
+  if (body && top) body.scrollTop = top;
 }
 
 dlg().addEventListener('wa-hide', (e) => {
@@ -829,6 +849,99 @@ function logHtml() {
     <wa-button slot="footer" variant="brand" data-dialog="close">Fechar</wa-button>`;
 }
 
+// ----- desempenho (CPU e memória)
+// O histórico só vem do app com a janela aberta, no máximo a cada 5 s (o "state" não carrega isso).
+async function refreshPerf() {
+  if (Date.now() - S.perfAt < 5000) return;
+  S.perfAt = Date.now();
+  const h = await api.metricsHistory();
+  if (S.modal?.kind !== 'perf') return;
+  S.perf = h;
+  renderModalBody();
+}
+
+// Teto "redondo" (1, 2, 5 × 10^n) acima do maior valor, para o gráfico não pular a cada ponto novo.
+function niceMax(v, floor) {
+  const x = Math.max(v * 1.1, floor);
+  const p = 10 ** Math.floor(Math.log10(x));
+  return [1, 2, 5, 10].map((m) => m * p).find((m) => m >= x);
+}
+
+// Gráfico de linha feito à mão em SVG. idx: 1 = CPU, 2 = memória nos pontos [t, cpu, mem].
+// Os textos ficam em HTML (o SVG estica); a linha usa vector-effect para não engrossar ao esticar.
+function lineChart(points, idx, h, { title, floor, fmtV }) {
+  const W = 600, H = 120;
+  const vals = points.map((p) => p[idx]);
+  const peak = vals.length ? Math.max(...vals) : 0;
+  const cur = vals.length ? vals[vals.length - 1] : 0;
+  const head = `<div class="chart-head"><span class="form-label">${title}</span><span class="meta num">agora <b>${fmtV(cur)}</b> · pico ${fmtV(peak)}</span></div>`;
+  if (points.length < 2) return `<div class="chart">${head}<p class="meta chart-empty">Ainda sem dados: o gráfico enche a cada ${Math.round(h.sampleMs / 1000)} segundos.</p></div>`;
+  const max = niceMax(peak, floor);
+  const t0 = h.now - h.historyMs;
+  const xy = points.map((p) => [Math.max(0, ((p[0] - t0) / h.historyMs) * W), H - (p[idx] / max) * H]);
+  const line = xy.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
+  const area = `${line}L${xy[xy.length - 1][0].toFixed(1)},${H}L${xy[0][0].toFixed(1)},${H}Z`;
+  const grid = [0.25, 0.5, 0.75].map((f) => `<line class="chart-grid" x1="0" x2="${W}" y1="${H * f}" y2="${H * f}"/>`).join('');
+  return `<div class="chart">${head}
+    <div class="chart-plot">
+      <span class="chart-y meta num" style="top:0">${fmtV(max)}</span><span class="chart-y meta num" style="bottom:0">0</span>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(title)} na última hora">${grid}<path class="chart-area" d="${area}"/><path class="chart-line" d="${line}"/></svg>
+    </div>
+    <div class="chart-x meta"><span>há 60 min</span><span>há 30 min</span><span>agora</span></div></div>`;
+}
+
+function perfHtml(d) {
+  const h = S.perf;
+  if (!h) return `<div class="empty">${icon('gauge-high')}<p>Carregando…</p></div>`;
+  const cur = h.current;
+  const limit = Number(S.config.settings.memoryLimitMB) || 0;
+  const memHeavy = limit > 0 ? Math.round(limit * 0.8) : 1024;
+  const cpuHeavy = Math.max(1, Math.round(80 / (h.cores || 1)));
+
+  const cells = (v, live = true) =>
+    live ? `<span class="num">${fmtCpu(v.cpu)}</span><span class="num">${fmtMem(v.mem)}</span>` : '<span class="meta num">—</span><span class="meta num">—</span>';
+  const row = ({ sel, name, v, live = true, heavy = false, sub = false, note = '' }) =>
+    `<button class="perf-row ${sub ? 'sub' : ''} ${heavy ? 'heavy' : ''}" data-action="perf-select" data-sel="${esc(sel)}" aria-pressed="${sel === d.sel}">
+      <span class="perf-name">${name}${heavy ? '<wa-badge variant="warning" pill>Pesada</wa-badge>' : ''}${note ? `<span class="meta">${esc(note)}</span>` : ''}</span>${cells(v, live)}</button>`;
+
+  const labels = { '@app': 'App inteiro', '@other': 'Janela, Painel e outros processos' };
+  let rows = row({ sel: '@app', name: '<b>App inteiro</b>', v: cur.app });
+  for (const g of S.config.games) {
+    const badge = `<span class="game-badge" style="background:${g.color}">${esc(g.short)}</span>`;
+    labels[`@game:${g.id}`] = g.name;
+    rows += row({ sel: `@game:${g.id}`, name: `${badge}<b>${esc(g.name)}</b>`, v: cur.games[g.id] || { cpu: 0, mem: 0 } });
+    for (const a of g.accounts) {
+      const key = keyOf(g, a);
+      const r = rtOf(key, a);
+      labels[key] = `${g.name} · ${a.name}`;
+      const live = !a.sleeping && !!r.live;
+      const note = live ? '' : a.sleeping ? 'dormindo' : STATUS[r.status] || '';
+      rows += row({ sel: key, name: esc(a.name), v: cur.accounts[key] || { cpu: 0, mem: 0 }, live, heavy: !!r.heavy, sub: true, note });
+    }
+  }
+  rows += row({ sel: '@other', name: esc(labels['@other']), v: cur.other });
+
+  const sel = labels[d.sel] ? d.sel : '@app';
+  const pts = h.series[sel] || [];
+  return `<div class="form">
+    <div class="perf-table">
+      <div class="perf-row perf-head"><span class="form-label">Quem</span><span class="form-label">CPU</span><span class="form-label">Memória</span></div>
+      ${rows}
+    </div>
+    <div class="form-block">
+      <span class="form-label">Última hora · ${esc(labels[sel])}</span>
+      ${lineChart(pts, 1, h, { title: 'CPU (% do PC)', floor: 5, fmtV: fmtCpu })}
+      ${lineChart(pts, 2, h, { title: 'Memória', floor: 256, fmtV: fmtMem })}
+    </div>
+    <wa-callout variant="neutral" size="s"><wa-icon slot="icon" name="circle-info"></wa-icon>
+      A CPU é a parte do PC inteiro que a conta usa (como no Gerenciador de Tarefas). Clique numa linha para ver o gráfico dela.
+      Uma conta aparece como <b>Pesada</b> (em amarelo) quando passa de <b>${fmt(memHeavy)} MB</b> de memória
+      ${limit > 0 ? '(80% do limite das Configurações)' : '(sem limite nas Configurações)'} ou quando usa em média
+      <b>${cpuHeavy}% do PC</b> (quase um núcleo cheio) por um minuto. O histórico se apaga ao fechar o IdleHub.</wa-callout>
+  </div>
+  <wa-button slot="footer" variant="brand" data-dialog="close">Fechar</wa-button>`;
+}
+
 // ---------------------------------------------------------------- ações
 async function onAction(act, el) {
   const key = el.dataset.key || el.closest('[data-key]')?.dataset.key;
@@ -962,6 +1075,13 @@ async function onAction(act, el) {
       S.seenLog = Date.now();
       updateRail();
       return openModal('log');
+    case 'open-perf':
+      S.perf = await api.metricsHistory();
+      S.perfAt = Date.now();
+      return openModal('perf', { sel: '@app' });
+    case 'perf-select':
+      S.modal.draft.sel = el.dataset.sel;
+      return renderModalBody();
     case 'open-data':
       return api.openData();
 
@@ -1113,6 +1233,7 @@ async function init() {
   api.onState((d) => {
     S.runtime = d.runtime;
     S.totalMem = d.totalMem;
+    S.totalCpu = d.totalCpu || 0;
     if (d.idlelive) S.idlelive = d.idlelive;
     updateRuntime();
   });

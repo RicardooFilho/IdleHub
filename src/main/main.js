@@ -9,6 +9,7 @@ const { PanelView } = require('./panel');
 const { setupPower } = require('./power');
 const { attachShortcuts } = require('./shortcuts');
 const { createRemote } = require('./remote');
+const { MetricsTracker } = require('./metrics');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -57,6 +58,7 @@ let mgr = null;
 let idlelive = null;
 let panel = null;
 let remote = null;
+const tracker = new MetricsTracker(); // histórico de CPU e memória (metrics.js)
 let quitting = false;
 let trayHintShown = false;
 let emitQueued = false;
@@ -91,10 +93,10 @@ function emitState() {
   emitQueued = false;
   if (!win || win.isDestroyed()) return;
   const metrics = app.getAppMetrics();
-  mgr.updateMetrics(metrics);
+  mgr.updateMetrics(metrics, tracker);
   const totalMem = Math.round(metrics.reduce((s, m) => s + (m.memory?.workingSetSize || 0), 0) / 1024);
   const snap = mgr.snapshot();
-  win.webContents.send('state', { runtime: snap, totalMem, idlelive: idlelive.snapshot() });
+  win.webContents.send('state', { runtime: snap, totalMem, totalCpu: tracker.latest.app.cpu, idlelive: idlelive.snapshot() });
   updateTrayMenu();
   if (process.env.IDLEHUB_DEBUG) {
     const line = Object.entries(snap.accounts).map(([k, a]) => `${k.split(':')[1]}=${a.status}/${a.mem}MB`).join(' ');
@@ -204,6 +206,9 @@ function registerIpc() {
     panel.setRect(list.find((t) => t.key === '__panel') || null);
     mgr.setLayout(list.filter((t) => t.key !== '__panel'));
   });
+
+  // Histórico da última hora: só quando a janela Desempenho está aberta (não vai junto com cada "state").
+  ipcMain.handle('metrics:history', () => tracker.history());
 
   ipcMain.handle('idlelive:action', async (_e, action) => {
     if (action === 'reload-page') panel.reload();
