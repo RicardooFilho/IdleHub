@@ -7,7 +7,7 @@ Leia antes de mexer no projeto. Elas valem para qualquer agente (Claude, Copilot
 IdleHub é um app de PC (Electron, Windows) para quem joga jogos idle de navegador com várias contas:
 - **Jogos:** cada conta de cada jogo roda numa `WebContentsView` própria, com sessão separada (login separado), num mosaico. Watchdog recarrega conta travada, em branco ou que caiu; contas podem "dormir" para liberar memória; alertas leem textos e números da página (`src/main/accounts.js`).
 - **Painel:** o [IdleLive](idlelive/README.md) (pontos do canal na Twitch e na Kick, votos, histórico) roda dentro do app, num processo separado (`src/main/idlelive.js`), e a página dele aparece na janela (`src/main/panel.js`).
-- Jogos prontos: PokeIdle (4 contas), LoLdle (5) e One Piece Idle (2), em `src/main/games.js`. Qualquer outro jogo entra pelo link.
+- Jogos prontos: PokeIdle (4 contas), LoLdle (5) e One Piece Idle (2). Ficam em `catalog/games.json` (o **catálogo**, que também é baixado da internet e conferido em `src/main/catalog.js`; `src/main/games.js` só o lê). Jogo novo entra editando esse arquivo, sem mexer no código. O catálogo é só dado: nunca execute nada que venha dele. Qualquer outro jogo entra pelo link.
 
 O público é de jogadores, não programadores, e o app é distribuído para amigos pelo instalador. Veja o [README.md](README.md).
 

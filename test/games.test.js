@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { PRESETS, gameFromPreset, sanitizeGame, migrateSessionTaken, migrateReconnecting } = require('../src/main/games');
+const { PRESETS, BUNDLED, gameFromPreset, sanitizeGame, migrateSessionTaken, migrateReconnecting } = require('../src/main/games');
 
 test('os três jogos prontos vêm com link e número de contas', () => {
   const byId = Object.fromEntries(PRESETS.map((p) => [p.preset, p]));
@@ -9,6 +9,23 @@ test('os três jogos prontos vêm com link e número de contas', () => {
   assert.equal(byId.lolidle.suggestedAccounts, 5);
   assert.equal(byId.onepieceidle.suggestedAccounts, 2);
   for (const p of PRESETS) assert.match(p.url, /^https:\/\//);
+});
+
+test('os jogos prontos vêm do catálogo que acompanha o app, com os mesmos ids de sempre', () => {
+  assert.deepEqual(PRESETS.map((p) => p.preset), BUNDLED.games.map((g) => g.id));
+  assert.deepEqual(PRESETS.map((p) => p.preset), ['pokeidle', 'lolidle', 'onepieceidle']);
+  const byId = Object.fromEntries(PRESETS.map((p) => [p.preset, p]));
+  assert.deepEqual([byId.pokeidle.short, byId.lolidle.short, byId.onepieceidle.short], ['PK', 'LoL', 'OP']);
+  assert.deepEqual(byId.pokeidle.watchers.map((w) => w.enabled), [false, false]); // alertas de exemplo vêm desligados
+});
+
+test('gameFromPreset guarda o padrão do catálogo e sanitizeGame não o perde', () => {
+  const g = gameFromPreset(PRESETS[0]);
+  assert.equal(g.catalogBase.color, PRESETS[0].color);
+  assert.deepEqual(sanitizeGame(g).catalogBase, g.catalogBase);
+  // Sem cópia válida do padrão, o campo some (o app usa o padrão de fábrica).
+  assert.equal('catalogBase' in sanitizeGame({ name: 'X', catalogBase: { color: 1 } }), false);
+  assert.equal('catalogBase' in sanitizeGame({ name: 'X' }), false);
 });
 
 test('gameFromPreset cria contas e alertas com ids próprios', () => {
@@ -78,6 +95,15 @@ test('a migração preenche os jogos antigos com os textos do perfil, sem refaze
   const mine = { id: 'c', preset: 'pokeidle', sessionTaken: { textIncludes: [] } };
   assert.equal(migrateSessionTaken(mine), false);
   assert.deepEqual(mine.sessionTaken.textIncludes, []);
+});
+
+test('a migração aceita a lista de perfis do catálogo baixado', () => {
+  const only = [{ preset: 'novo', sessionTaken: { textIncludes: ['a'] }, reconnecting: { textIncludes: ['b'] } }];
+  const g = { id: 'a', preset: 'novo' };
+  migrateSessionTaken(g, only);
+  migrateReconnecting(g, only);
+  assert.deepEqual(g.sessionTaken.textIncludes, ['a']);
+  assert.deepEqual(g.reconnecting.textIncludes, ['b']);
 });
 
 test('os jogos prontos vêm com textos de reconectando, em frases e copiados para cada jogo', () => {

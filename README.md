@@ -47,7 +47,8 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 |---|---|
 | Janela, bandeja, notificações, IPC | `src/main/main.js` |
 | Contas (uma sessão isolada por conta), watchdog, alertas | `src/main/accounts.js` |
-| Perfis prontos dos jogos | `src/main/games.js` |
+| Perfis prontos dos jogos (lê o catálogo) | `src/main/games.js` |
+| Catálogo de jogos: lista que vem no app (`catalog/games.json`), é baixada da internet e conferida | `src/main/catalog.js` |
 | Avisos fora do PC (Discord e Telegram; cofre de segredos criptografado) | `src/main/remote.js` |
 | Configuração local (`%APPDATA%/IdleHub/config.json`) | `src/main/config.js` |
 | "Sempre visível" + limitador de FPS injetado no jogo | `src/preload/game.js` |
@@ -84,6 +85,32 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
   texto das páginas. Apagar o arquivo só zera os resumos.
 - **Memória:** contas escondidas rodam com FPS limitado (só a animação; os temporizadores do
   jogo seguem em 100%); contas dormindo não gastam nada.
+
+## Catálogo de jogos
+
+Os jogos prontos (PokeIdle, LoLdle, One Piece Idle e os que vierem) ficam em `catalog/games.json`. O IdleHub:
+
+- baixa esse arquivo de `https://raw.githubusercontent.com/RicardooFilho/IdleHub/main/catalog/games.json` ao abrir e a cada 6 horas, e guarda uma cópia em `%APPDATA%/IdleHub/catalog.json` (o IdleHub usa a maior `version` válida entre a baixada, a cópia e a que vem no app; sem internet, a cópia ou a do app);
+- só usa o que passa na conferência: link `https`, cor `#rrggbb`, textos curtos, no máximo 12 contas, sem seletor nem regex nos alertas. O que for inválido é ignorado e nada do catálogo é executado;
+- atualiza os jogos que você já criou, mas só nos campos que você não mudou (nome, sigla, cor, link e os textos de logout, de conta aberta em outro lugar e de reconectando). Contas e alertas ficam como estão.
+
+**Para adicionar um jogo** (sem lançar versão): inclua um item em `games` no `catalog/games.json`, suba a `version` e faça o merge na `main`. Todo mundo recebe em até 6 horas.
+
+```jsonc
+{
+  "id": "meujogo",                 // letras minúsculas, números e "-"; não muda depois
+  "name": "Meu Jogo", "short": "MJ", "color": "#3e7bfa",
+  "url": "https://meujogo.com/entrar",
+  "suggestedAccounts": 2,
+  "maxAccounts": 4,                // opcional: limite recomendado (1 a 12)
+  "banWarning": "Mais de 4 contas bane todas.",   // opcional: aviso mostrado na tela do jogo e ao passar do limite
+  "loggedOut": { "urlIncludes": ["login"], "textIncludes": [] },
+  "sessionTaken": { "textIncludes": ["aberta em outra aba"] },
+  "reconnecting": { "textIncludes": ["reconectando"] }
+}
+```
+
+Ao passar de `maxAccounts`, o IdleHub avisa com o `banWarning` e pede confirmação; não bloqueia. Os testes (`test/catalog.test.js`) mostram o que é aceito.
 
 ## Avisos no celular
 

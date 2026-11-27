@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "games": [
+    {
+      "id": "pokeidle",
+      "name": "PokeIdle",
+      "short": "PK",
+      "color": "#e5484d",
+      "url": "https://pokeidle.io/",
+      "suggestedAccounts": 4,
+      "loggedOut": {
+        "urlIncludes": [
+          "login"
+        ],
+        "textIncludes": []
+      },
+      "sessionTaken": {
+        "textIncludes": [
+          "aberta em outro lugar",
+          "conectado em outro lugar",
+          "logado em outro dispositivo",
+          "aberto em outra aba",
+          "aberta em outra aba",
+          "logged in elsewhere",
+          "logged in from another",
+          "opened in another tab",
+          "logged in on another device",
+          "session has been taken"
+        ]
+      },
+      "reconnecting": {
+        "textIncludes": [
+          "reconectando",
+          "tentando reconectar",
+          "tentando se reconectar",
+          "conexão perdida",
+          "reconnecting",
+          "trying to reconnect",
+          "attempting to reconnect",
+          "connection lost",
+          "lost connection to the server"
+        ]
+      },
+      "watchers": [
+        {
+          "name": "Shiny apareceu",
+          "kind": "text",
+          "selector": "",
+          "pattern": "shiny",
+          "op": ">=",
+          "value": 0,
+          "enabled": false
+        },
+        {
+          "name": "Lendário apareceu",
+          "kind": "text",
+          "selector": "",
+          "pattern": "lendário",
+          "op": ">=",
+          "value": 0,
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "id": "lolidle",
+      "name": "LoLdle",
+      "short": "LoL",
+      "color": "#c8a13a",
+      "url": "https://lolidle.com/jogar#entrar",
+      "suggestedAccounts": 5,
+      "loggedOut": {
+        "urlIncludes": [
+          "login"
+        ],
+        "textIncludes": []
+      },
+      "sessionTaken": {
+        "textIncludes": [
+          "aberta em outro lugar",
+          "conectado em outro lugar",
+          "logado em outro dispositivo",
+          "aberto em outra aba",
+          "aberta em outra aba",
+          "logged in elsewhere",
+          "logged in from another",
+          "opened in another tab",
+          "logged in on another device",
+          "session has been taken"
+        ]
+      },
+      "reconnecting": {
+        "textIncludes": [
+          "reconectando",
+          "tentando reconectar",
+          "tentando se reconectar",
+          "conexão perdida",
+          "reconnecting",
+          "trying to reconnect",
+          "attempting to reconnect",
+          "connection lost",
+          "lost connection to the server"
+        ]
+      },
+      "watchers": []
+    },
+    {
+      "id": "onepieceidle",
+      "name": "One Piece Idle",
+      "short": "OP",
+      "color": "#3e7bfa",
+      "url": "https://oneidlepiece.com/entrar",
+      "suggestedAccounts": 2,
+      "loggedOut": {
+        "urlIncludes": [
+          "login"
+        ],
+        "textIncludes": []
+      },
+      "sessionTaken": {
+        "textIncludes": [
+          "aberta em outro lugar",
+          "conectado em outro lugar",
+          "logado em outro dispositivo",
+          "aberto em outra aba",
+          "aberta em outra aba",
+          "logged in elsewhere",
+          "logged in from another",
+          "opened in another tab",
+          "logged in on another device",
+          "session has been taken"
+        ]
+      },
+      "reconnecting": {
+        "textIncludes": [
+          "reconectando",
+          "tentando reconectar",
+          "tentando se reconectar",
+          "conexão perdida",
+          "reconnecting",
+          "trying to reconnect",
+          "attempting to reconnect",
+          "connection lost",
+          "lost connection to the server"
+        ]
+      },
+      "watchers": []
+    }
+  ]
+}
