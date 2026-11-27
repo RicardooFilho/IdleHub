@@ -57,6 +57,8 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 | Página do IdleLive dentro da janela | `src/main/panel.js` |
 | Atalhos de teclado (lidos também dentro das contas e do Painel) | `src/main/shortcuts.js` |
 | Histórico de CPU e memória (última hora) e regra de conta "pesada" | `src/main/metrics.js` |
+| Registro de eventos das contas (`%APPDATA%/IdleHub/events.jsonl`) e resumo de um período | `src/main/events.js` |
+| Percebe a volta ao PC depois de horas fora ("Enquanto você estava fora") | `src/main/away.js` |
 | O IdleLive em si (servidor Node + painel web) | `idlelive/` (veja `idlelive/AGENTS.md`) |
 
 - **Logins:** cada conta tem sua própria pasta de cookies (`persist:acc-<jogo>-<conta>`).
@@ -73,6 +75,12 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
 - **Atalhos:** com a janela em foco, **Ctrl+1…9** abre a conta 1 a 9, **Ctrl+Tab** / **Ctrl+Shift+Tab** passam para a próxima/anterior, **F5** recarrega a conta aberta e **Ctrl+M** silencia tudo.
   A lista também está em Configurações.
 - **Desempenho:** o botão do velocímetro na barra lateral mostra CPU e memória do app, de cada jogo e de cada conta, com gráfico da última hora (guardado só na memória, não vai para o disco). Conta pesada (perto do limite de memória ou usando quase um núcleo inteiro da CPU por 1 minuto) fica em amarelo.
+- **Enquanto você estava fora:** se você ficar parado (ou o PC dormir) por 2 horas ou mais, ao voltar o IdleHub mostra um cartão com
+  as quedas (e quantas foram resolvidas), os alertas que dispararam, quanto tempo as contas rodaram, a internet que caiu e as contas que
+  precisam de atenção agora. O tempo é ajustável em Configurações (0 desliga). Os pontos do IdleLive ainda não entram no resumo.
+- **Registro de eventos:** o IdleHub anota o que acontece com cada conta (quedas, recargas, alertas, logout, internet) em
+  `%APPDATA%/IdleHub/events.jsonl`, por 7 dias, só neste PC. Guarda o tipo, a hora, a conta e um detalhe curto; nunca links nem
+  texto das páginas. Apagar o arquivo só zera os resumos.
 - **Memória:** contas escondidas rodam com FPS limitado (só a animação; os temporizadores do
   jogo seguem em 100%); contas dormindo não gastam nada.
 

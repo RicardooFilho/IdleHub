@@ -12,7 +12,8 @@ const S = {
   perf: null, // histórico de CPU e memória (IPC metrics:history), só carregado com a janela Desempenho aberta
   perfAt: 0,
   view: loadView(), // panel | all | game | focus
-  modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log', draft }
+  modal: null, // { kind: 'onboard' | 'game' | 'settings' | 'log' | 'away', draft }
+  awayPending: null, // resumo de "Enquanto você estava fora" esperando a janela aberta fechar
   asking: false,
   version: '',
   openAtLogin: false,
@@ -489,6 +490,7 @@ const MODAL_TITLES = {
   settings: 'Configurações',
   log: 'Atividade',
   perf: 'Desempenho',
+  away: 'Enquanto você estava fora',
 };
 
 function renderModal() {
@@ -515,7 +517,8 @@ function renderModalBody() {
     m.kind === 'game' ? gameHtml(m.draft) :
     m.kind === 'settings' ? settingsHtml(m.draft) :
     m.kind === 'log' ? logHtml() :
-    m.kind === 'perf' ? perfHtml(m.draft) : '';
+    m.kind === 'perf' ? perfHtml(m.draft) :
+    m.kind === 'away' ? awayHtml(m.draft) : '';
   const d = dlg();
   if (d._html === html) return;
   // Trocar o conteúdo zera a rolagem da janela: guarda e devolve (a lista de Desempenho se atualiza sozinha).
@@ -532,7 +535,11 @@ dlg().addEventListener('wa-hide', (e) => {
   S.modal = null;
   updateRail();
 });
-dlg().addEventListener('wa-after-hide', (e) => e.target === e.currentTarget && scheduleLayout());
+dlg().addEventListener('wa-after-hide', (e) => {
+  if (e.target !== e.currentTarget) return;
+  scheduleLayout();
+  showAwayPending();
+});
 
 // ----- boas-vindas
 function onboardDraft() {
@@ -748,6 +755,9 @@ function settingsHtml(d) {
         ${sw('closeToTray', 'Continuar rodando ao fechar a janela', 'O IdleHub fica no ícone perto do relógio.')}
         ${sw('openAtLogin', 'Abrir junto com o Windows')}
         ${sw('startMinimized', 'Começar minimizado', 'Só o ícone perto do relógio.')}
+        <div class="form-row">
+          ${num('awaySummaryHours', 'Mostrar o resumo ao voltar depois de (horas)', 'Se você ficar parado esse tempo, o IdleHub mostra o que aconteceu com as contas quando você voltar. 0 = desligado.', 0, 72)}
+        </div>
       </div>
       ${shortcutsHtml()}
       ${remoteHtml(d)}
@@ -834,6 +844,77 @@ function telegramHtml(d) {
 function collectSettings() {
   const d = S.modal.draft;
   for (const el of $$('#dialog [data-f]')) d[el.dataset.f] = el.localName === 'wa-switch' ? el.checked : Number(el.value);
+}
+
+// ----- enquanto você estava fora
+// Quem monta o resumo é o processo principal (summarize() em src/main/events.js); aqui só se desenha.
+function fmtDur(ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 1) return 'menos de 1 min';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
+const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
+const clock = (ms) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+// Chegou numa hora ruim (configurações abertas, por exemplo)? Espera a janela fechar.
+function showAway(summary) {
+  S.awayPending = summary;
+  showAwayPending();
+}
+
+function showAwayPending() {
+  if (!S.awayPending || S.asking || !S.config) return;
+  if (S.modal && S.modal.kind !== 'log' && S.modal.kind !== 'away') return;
+  const summary = S.awayPending;
+  S.awayPending = null;
+  openModal('away', summary);
+}
+
+function awayHtml(s) {
+  const t = s.totals;
+  const sameDay = new Date(s.from).toDateString() === new Date(s.to).toDateString();
+  const since = sameDay ? `das ${clock(s.from)} às ${clock(s.to)}` : `desde ${new Date(s.from).toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+  const calm = !t.drops && !t.alerts && !s.needsAttention.length;
+  const tile = (ic, value, label, warn = false) =>
+    `<div class="away-stat ${warn ? 'warn' : ''}">${icon(ic)}<span class="away-num num">${value}</span><span class="meta">${esc(label)}</span></div>`;
+  const stats = [
+    tile('rotate-right', t.drops ? `${fmt(t.resolved)} de ${fmt(t.drops)}` : '0', t.drops ? 'quedas resolvidas' : 'quedas', t.unresolved > 0),
+    tile('bell', fmt(t.alerts), t.alerts === 1 ? 'alerta disparou' : 'alertas dispararam', t.alerts > 0),
+    tile('hourglass-half', t.runningMs ? fmtDur(t.runningMs) : '—', t.accounts > 1 ? `rodando, somando ${fmt(t.accounts)} contas` : 'rodando'),
+  ];
+  if (s.offline.count) stats.push(tile('wifi', fmtDur(s.offline.ms), s.offline.count === 1 ? 'sem internet' : `sem internet (${fmt(s.offline.count)} vezes)`, true));
+
+  const name = (r) => esc(r.game ? `${r.game} · ${r.who}` : r.who);
+  const attention = s.needsAttention.length
+    ? `<div class="form-block"><span class="form-label">Precisam da sua atenção agora</span>
+        <div class="away-list">${s.needsAttention
+          .map((a) => `<div class="away-row"><span class="who">${name(a)}</span><span class="msg">${esc(STATUS[a.status] || a.status)}</span></div>`)
+          .join('')}</div></div>`
+    : '';
+  const busy = s.byAccount.filter((r) => r.drops || r.alerts);
+  const detail = busy.length
+    ? `<div class="form-block"><span class="form-label">O que aconteceu</span>
+        <div class="away-list">${busy
+          .map((r) => {
+            const bits = [];
+            if (r.drops) bits.push(`${plural(r.drops, 'queda', 'quedas')}${r.unresolved ? (r.unresolved === r.drops ? ' (sem resolver)' : ` (${r.unresolved} sem resolver)`) : r.drops === 1 ? ' (resolvida)' : ' (resolvidas)'}`);
+            if (r.alerts) bits.push(`${plural(r.alerts, 'alerta', 'alertas')}${r.alertNames.length ? `: ${r.alertNames.slice(0, 3).map((n) => `${n.name}${n.count > 1 ? ` ×${n.count}` : ''}`).join(', ')}` : ''}`);
+            return `<div class="away-row"><span class="who">${name(r)}</span><span class="msg">${esc(bits.join(' · '))}</span></div>`;
+          })
+          .join('')}</div></div>`
+    : '';
+  return `<div class="form">
+      <p class="meta" style="margin:0">Você ficou fora por ${esc(fmtDur(s.durationMs))} (${esc(since)}).</p>
+      ${calm ? `<wa-callout variant="success" size="small"><wa-icon slot="icon" name="circle-check"></wa-icon>Tudo certo: nenhuma conta caiu nem pediu atenção nesse tempo.</wa-callout>` : ''}
+      <div class="away-stats">${stats.join('')}</div>
+      ${attention}${detail}
+    </div>
+    <wa-button slot="footer" appearance="plain" data-action="open-log"><wa-icon slot="start" name="bell"></wa-icon>Ver atividade</wa-button>
+    <wa-button slot="footer" variant="brand" data-dialog="close">Fechar</wa-button>`;
 }
 
 // ----- atividade
@@ -1239,6 +1320,7 @@ async function init() {
   });
   api.onFocusAccount(focusAccount);
   api.onShortcut(onShortcut);
+  api.onAwaySummary(showAway);
 
   // Um ouvinte só para todos os botões (data-action), como pede o DESIGN.md.
   document.addEventListener('click', (e) => {

@@ -73,6 +73,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 - Uma janela só (`#dialog`, `wa-dialog`, `light-dismiss`, largura `min(860px, 94vw)`), com o conteúdo trocado pelo `renderModalBody()`. Botões no `slot="footer"`; Cancelar e Fechar usam `data-dialog="close"`.
 - Exceção: as **boas-vindas** não fecham clicando fora nem com Esc (sem jogo nenhum o app fica vazio).
 - Confirmação: sempre `ask({ title, text, ok, danger })`, nunca `confirm()` ou `alert()`. O título é uma pergunta curta ("Remover Conta 2?"), o texto diz o que acontece e se dá para voltar atrás, e o botão repete o verbo ("Remover", não "OK").
+- **Enquanto você estava fora** (`awayHtml()`): janela normal (`S.modal`, esconde as contas) aberta sozinha quando a pessoa volta. Se outra janela estiver aberta, espera ela fechar (`S.awayPending`). Frase com o tempo fora, quadradinhos de números (`.away-stat`: quedas resolvidas, alertas, tempo rodando, internet) e listas `.away-list` do que aconteceu e do que precisa de atenção. Tudo vem pronto do `summarize()` de `src/main/events.js`; o botão **Ver atividade** abre a lista.
 - Formulários: `wa-input` com `label` e `hint`, `wa-select`, `wa-switch` (ligar/desligar) e `wa-checkbox` (escolher itens). Grupos com `.form-block` e rótulo `.form-label`.
 
 ### Atalhos de teclado
@@ -113,6 +114,8 @@ Font Awesome grátis (`<wa-icon name="…">`), sempre com o mesmo significado. O
 | `bell` | atividade (recargas, logouts, alertas) |
 | `gear` | configurações |
 | `gauge-high` | desempenho (CPU e memória) |
+| `hourglass-half` | tempo que as contas ficaram rodando (resumo de quem estava fora) |
+| `wifi` | tempo sem internet (resumo de quem estava fora) |
 | `paper-plane` | enviar teste de aviso (Discord, Telegram) |
 | `file-import` | importar dados |
 | `gamepad` | contas dos jogos |

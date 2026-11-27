@@ -9,6 +9,7 @@ const {
   CHALLENGE_NOTIFY_MS, backoffMs, recordFailure, tooManyFailures, reconnectingTooLong, classifyPage, checkInternet,
 } = require('./recovery');
 const { AUTO_GAP_MS, ALL_GAP_MS, pickReturnUrl, staggerDelays, autoOptimizeReason } = require('./optimize');
+const { ISSUE_TYPES } = require('./events');
 
 const PROBE_TIMEOUT_MS = 15000;
 const LOADING_GRACE_MS = 90000;
@@ -125,13 +126,14 @@ function fmtNum(v) {
 }
 
 class AccountManager {
-  constructor({ win, getConfig, saveConfig, notify, onChange, onShortcut }) {
+  constructor({ win, getConfig, saveConfig, notify, onChange, onShortcut, events }) {
     this.win = win;
     this.getConfig = getConfig;
     this.saveConfig = saveConfig;
     this.notify = notify;
     this.onChange = onChange;
     this.onShortcut = onShortcut || (() => {});
+    this.events = events || { add() {} }; // registro de eventos (events.js): alimenta os resumos
     this.rt = new Map(); // key -> runtime
     this.layout = [];
     this.logs = [];
@@ -162,6 +164,13 @@ class AccountManager {
     this.onChange();
   }
 
+  // Registro estruturado (events.js), ao lado do log de texto. Sem links nem texto de página: só o tipo e um detalhe curto.
+  record(rt, type, detail) {
+    const { g, a } = rt ? this.find(rt.key) : {};
+    if (rt && ISSUE_TYPES.has(type)) rt.openIssue = true; // 'recovered' fecha quando a conta voltar a ficar ok
+    this.events.add({ key: rt?.key || null, game: g?.name, who: a?.name, type, detail });
+  }
+
   alert(rt, text) {
     this.log(rt, text, 'alert');
     this.notify(this.label(rt), text, rt.key);
@@ -175,6 +184,7 @@ class AccountManager {
 
     for (const [key, rt] of this.rt) {
       if (!want.has(key)) {
+        if (rt.view) this.record(rt, 'live-stop');
         this.destroyView(rt);
         this.rt.delete(key);
       }
@@ -194,11 +204,13 @@ class AccountManager {
         this.rt.set(key, rt);
       }
       if (a.sleeping) {
+        if (rt.view) this.record(rt, 'live-stop');
         if (rt.view) this.destroyView(rt);
         this.resetRecovery(rt); // dormir e acordar zera as quedas
         rt.status = 'sleeping';
       } else if (!rt.view) {
         this.createView(rt, g);
+        this.record(rt, 'live-start');
       } else if (rt.baseUrl !== g.url) {
         rt.baseUrl = g.url;
         if (g.url) rt.view.webContents.loadURL(g.url).catch(() => {});
@@ -274,6 +286,7 @@ class AccountManager {
     });
     wc.on('render-process-gone', (_e, details) => {
       rt.status = 'crashed';
+      this.record(rt, 'crash', details.reason);
       // Conta pausada (aberta em outro lugar): só recarrega depois da pausa.
       const wait = Math.max(3000, rt.pausedUntil - Date.now());
       this.log(rt, wait > 3000 ? `A página caiu (${details.reason}). A conta está pausada: recarrego quando a pausa acabar.` : `A página caiu (${details.reason}).`, 'warn');
@@ -538,6 +551,7 @@ class AccountManager {
     if (!g || !a || a.sleeping) return;
     if (reason) {
       rt.reloads++;
+      this.record(rt, 'reload', reason);
       this.alert(rt, `Recarreguei a conta: ${reason}.`);
     }
     const wc = rt.view?.webContents;
@@ -590,6 +604,7 @@ class AccountManager {
     rt.status = 'attention';
     if (!rt.gaveUp) {
       rt.gaveUp = true;
+      this.record(rt, 'gave-up');
       this.alert(rt, 'Esta conta caiu várias vezes seguidas e parei de recarregar. Precisa da sua atenção.');
     }
     return true;
@@ -617,10 +632,12 @@ class AccountManager {
     if (!up && !this.internetDown) {
       this.internetDown = true;
       const text = 'A internet do PC caiu. As contas voltam sozinhas quando ela voltar.';
+      this.record(null, 'offline');
       this.log(null, text, 'alert');
       this.notify('IdleHub', text);
     } else if (up && this.internetDown) {
       this.internetDown = false;
+      this.record(null, 'online');
       this.log(null, 'A internet voltou. Recarregando as contas que estavam sem ela.');
       this.resumeAfterInternet();
     }
@@ -673,6 +690,7 @@ class AccountManager {
     rt.status = 'server-down';
     if (!rt.downNotified) {
       rt.downNotified = true;
+      this.record(rt, 'server-down');
       this.alert(rt, 'O jogo está fora do ar, não é o IdleHub. Tento de novo sozinho.');
     }
     this.onChange();
@@ -760,6 +778,7 @@ class AccountManager {
       rt.pausedUntil = Date.now() + SESSION_TAKEN_PAUSE_MS; // texto ainda lá: renova a pausa
       if (!rt.sessionTakenNotified) {
         rt.sessionTakenNotified = true;
+        this.record(rt, 'session-taken');
         this.alert(rt, 'A conta foi aberta em outro lugar. Pausei o watchdog dela por 10 minutos para não derrubar a outra sessão.');
       }
       return;
@@ -774,6 +793,7 @@ class AccountManager {
       rt.challengeSince ||= Date.now();
       if (!rt.challengeNotified && Date.now() - rt.challengeSince >= CHALLENGE_NOTIFY_MS) {
         rt.challengeNotified = true;
+        this.record(rt, 'challenge');
         this.alert(rt, 'O site pediu uma verificação. Abra a conta e clique na caixa.');
       }
       return;
@@ -809,11 +829,16 @@ class AccountManager {
       rt.status = 'logged-out';
       if (!rt.loggedOutNotified) {
         rt.loggedOutNotified = true;
+        this.record(rt, 'logged-out');
         this.alert(rt, 'A conta saiu do login. Entre de novo nela.');
       }
     } else {
       rt.loggedOutNotified = false;
       rt.status = 'ok';
+      if (rt.openIssue) {
+        rt.openIssue = false;
+        this.record(rt, 'recovered');
+      }
     }
 
     for (const w of args.w) {
@@ -841,6 +866,7 @@ class AccountManager {
       const was = !!rt.trig[w.id];
       rt.trig[w.id] = hit;
       if (hit && (!was || w.op === 'change')) {
+        this.record(rt, 'alert', w.name);
         this.alert(rt, w.kind === 'text' ? `${w.name}` : `${w.name}: ${fmtNum(v)}`);
       }
     }
@@ -897,6 +923,17 @@ class AccountManager {
       };
     }
     return { accounts, log: this.logs.slice(-150) };
+  }
+
+  // Estado de agora de cada conta ligada, no formato que o summarize() de events.js espera.
+  accountStates() {
+    const out = {};
+    for (const rt of this.rt.values()) {
+      if (!rt.view) continue;
+      const { g, a } = this.find(rt.key);
+      out[rt.key] = { game: g?.name || '', who: a?.name || rt.key, status: rt.status };
+    }
+    return out;
   }
 
   shutdown() {
