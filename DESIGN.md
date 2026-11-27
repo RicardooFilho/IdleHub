@@ -97,7 +97,7 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 ### Estados
 
 - Lista vazia, conta dormindo, jogo sem link e Painel abrindo: `<div class="empty">` com ícone, `h2`, uma frase que diz o que fazer e o botão da ação.
-- Conta: `.dot.ok` (verde brilhando), `.loading` (laranja piscando), `.unresponsive`/`.no-internet`/`.server-down`/`.challenge`/`.attention`/`.logged-out`/`.session-taken`/`.reconnecting` (amarelo), `.crashed` (vermelho), `.sleeping`/`.no-url` (cinza). Status em texto ao lado, menos quando está rodando.
+- Conta: `.dot.ok` (verde brilhando), `.loading` (laranja piscando), `.unresponsive`/`.no-internet`/`.server-down`/`.challenge`/`.attention`/`.logged-out`/`.session-taken`/`.reconnecting`/`.no-data`/`.conn-dropped` (amarelo), `.crashed` (vermelho), `.sleeping`/`.no-url` (cinza). Status em texto ao lado. Rodando bem, o texto é a conexão com o servidor do jogo (regra em `src/main/connection.js`): "Conectada" (bolinha verde), "Sem dados há N min" e "Conexão caiu" (amarelo); sem sinal de conexão ainda (jogo recém-aberto ou sem conexão contínua), fica vazio.
 - Conta com alerta disparado: borda `warning` no card (`.alerting`).
 - Conta **pesada** (muita CPU ou memória, regra em `src/main/metrics.js`): o texto `CPU x% · memória` do topo do card ganha fundo amarelo (`.tile-mem.heavy`, tokens `warning`); a borda continua sendo só dos alertas. Na janela Desempenho a linha ganha o mesmo tom e o selo `warning` "Pesada".
 

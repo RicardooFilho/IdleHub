@@ -23,6 +23,19 @@ test.afterEach(() => {
   delete globalThis.location;
 });
 
+test('a sonda leva junto o que o preload sabe dos WebSockets (só horários), ou null', () => {
+  page({ text: 'oi' });
+  assert.equal(probe().net, null);
+  globalThis.window = { __idleHubNet: () => ({ open: 1, ever: true, msg: 5, opened: 10, closed: -1 }) };
+  try {
+    assert.deepEqual(probe().net, { open: 1, ever: true, msg: 5, opened: 10, closed: -1 });
+    globalThis.window = { __idleHubNet: () => { throw new Error('x'); } };
+    assert.equal(probe().net, null);
+  } finally {
+    delete globalThis.window;
+  }
+});
+
 test('página sem texto nem imagem conta como tela em branco', () => {
   page({ text: '   ' });
   assert.equal(probe().blank, true);

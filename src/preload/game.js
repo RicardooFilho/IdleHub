@@ -4,7 +4,8 @@
 //  2) limitador de FPS controlado pelo painel (economiza CPU/GPU);
 //  3) sem chave de acesso (passkey): evita a janela do Windows Hello pedindo
 //     chave de segurança no login do Google; o site cai no login com senha;
-//  4) no login do Google, se apresenta como Firefox (o Google bloqueia apps).
+//  4) no login do Google, se apresenta como Firefox (o Google bloqueia apps);
+//  5) anota quando os WebSockets do jogo abrem, recebem dados e fecham (só horários).
 const { webFrame } = require('electron');
 
 function patch() {
@@ -86,6 +87,50 @@ function patch() {
   window.__idleHubSetFps = (n) => {
     fps = Math.max(0, Number(n) || 0);
   };
+
+  // Conexão do jogo: só conta QUANDO os WebSockets abrem, recebem mensagem e fecham.
+  // Não lê o conteúdo das mensagens nem mexe nelas (os ouvintes só anotam a hora).
+  // O IdleHub lê o resultado de vez em quando (watchdog, connection.js).
+  try {
+    const NativeWS = window.WebSocket;
+    const now = performance.now.bind(performance);
+    const net = { open: 0, ever: false, msg: -1, opened: -1, closed: -1 };
+    const age = (t) => (t < 0 ? -1 : Math.round(now() - t));
+    const track = (ws) => {
+      let isOpen = false;
+      ws.addEventListener('open', () => {
+        isOpen = true;
+        net.open++;
+        net.ever = true;
+        net.opened = now();
+      });
+      ws.addEventListener('message', () => {
+        net.msg = now();
+      });
+      ws.addEventListener('close', () => {
+        if (!isOpen) return; // nunca chegou a abrir (falha ao conectar)
+        isOpen = false;
+        net.open = Math.max(0, net.open - 1);
+        net.closed = now();
+      });
+    };
+    if (NativeWS) {
+      // Proxy mantém WebSocket.OPEN, instanceof e o resto do jeito que o jogo espera.
+      window.WebSocket = new Proxy(NativeWS, {
+        construct(target, args, newTarget) {
+          const ws = Reflect.construct(target, args, newTarget);
+          try {
+            track(ws);
+          } catch (e) {}
+          return ws;
+        },
+      });
+    }
+    Object.defineProperty(window, '__idleHubNet', {
+      configurable: true,
+      value: () => ({ open: net.open, ever: net.ever, msg: age(net.msg), opened: age(net.opened), closed: age(net.closed) }),
+    });
+  } catch (e) {}
 }
 
 webFrame.executeJavaScript(`(${patch.toString()})()`).catch(() => {});
