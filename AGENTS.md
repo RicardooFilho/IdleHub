@@ -20,7 +20,7 @@ O público é de jogadores, não programadores, e o app é distribuído para ami
 - `src/preload/game.js` faz a página se ver sempre visível (`document.hidden = false`);
 - o limite de FPS só reduz a animação (`requestAnimationFrame`). O padrão é 30: menos que isso deixaria lentos os jogos que contam o progresso por quadro (há um teste para isso).
 
-Não troque nada disso sem medir antes (contas escondidas e minimizadas, com `setInterval` e `requestAnimationFrame`).
+Não troque nada disso sem medir antes (contas escondidas e minimizadas, com `setInterval` e `requestAnimationFrame`). As medições de hoje (e a sonda para repetir) estão em [docs/modo-economico.md](docs/modo-economico.md).
 
 ## Segurança e dados
 
