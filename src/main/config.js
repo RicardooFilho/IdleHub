@@ -27,9 +27,8 @@ const DEFAULT_SETTINGS = {
 };
 
 // IDLEHUB_DATA: pasta de dados de teste (o main.js também usa) e o que os testes usam, fora do Electron.
-function file() {
-  return path.join(process.env.IDLEHUB_DATA || app.getPath('userData'), 'config.json');
-}
+const dataDir = () => process.env.IDLEHUB_DATA || app.getPath('userData');
+const file = () => path.join(dataDir(), 'config.json');
 
 function empty() {
   return { version: 1, onboarded: false, settings: { ...DEFAULT_SETTINGS }, games: [], groups: [], profiles: [] };
@@ -57,4 +56,4 @@ function save(c) {
   fs.renameSync(tmp, f);
 }
 
-module.exports = { load, save, DEFAULT_SETTINGS };
+module.exports = { load, save, dataDir, DEFAULT_SETTINGS };

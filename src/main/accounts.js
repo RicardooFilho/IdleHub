@@ -140,7 +140,7 @@ function fmtNum(v) {
 }
 
 class AccountManager {
-  constructor({ win, getConfig, saveConfig, notify, onChange, onShortcut, events }) {
+  constructor({ win, getConfig, saveConfig, notify, onChange, onShortcut, events, extensions }) {
     this.win = win;
     this.getConfig = getConfig;
     this.saveConfig = saveConfig;
@@ -148,6 +148,7 @@ class AccountManager {
     this.onChange = onChange;
     this.onShortcut = onShortcut || (() => {});
     this.events = events || { add() {} }; // registro de eventos (events.js): alimenta os resumos
+    this.extensions = extensions || null; // extensões do Chrome por conta (extensions.js)
     this.rt = new Map(); // key -> runtime
     this.layout = [];
     this.logs = [];
@@ -203,6 +204,7 @@ class AccountManager {
       if (!want.has(key)) {
         if (rt.view) this.record(rt, 'live-stop');
         this.destroyView(rt);
+        this.dropExtensions(key);
         this.rt.delete(key);
       }
     }
@@ -225,7 +227,10 @@ class AccountManager {
       }
       if (a.sleeping) {
         if (rt.view) this.record(rt, 'live-stop');
-        if (rt.view) this.destroyView(rt);
+        if (rt.view) {
+          this.destroyView(rt);
+          this.dropExtensions(key); // conta dormindo não gasta memória: nem as extensões dela ficam rodando
+        }
         this.resetRecovery(rt); // dormir e acordar zera as quedas
         rt.status = 'sleeping';
       } else if (!rt.view) {
@@ -330,14 +335,73 @@ class AccountManager {
       this.onChange();
     });
 
-    if (g.url) {
-      rt.status = 'loading';
+    const start = () => {
+      if (rt.view !== view || wc.isDestroyed()) return; // dormiu ou foi removida enquanto as extensões carregavam
+      if (g.url) {
+        rt.status = 'loading';
+        rt.loadStart = Date.now();
+        wc.loadURL(startUrl || g.url).catch(() => {});
+      } else {
+        rt.status = 'no-url';
+      }
+      this.applyLayout();
+    };
+    // Extensões só valem na próxima página: carregam na sessão ANTES da primeira navegação. Conta sem extensão
+    // não espera nada (caminho de sempre).
+    if (this.hasExtensions(rt.key, wc.session)) {
+      if (g.url) rt.status = 'loading';
       rt.loadStart = Date.now();
-      wc.loadURL(startUrl || g.url).catch(() => {});
+      this.syncExtensions(rt, wc.session).then(start, start);
     } else {
-      rt.status = 'no-url';
+      start();
     }
     this.applyLayout();
+  }
+
+  dropExtensions(key) {
+    if (!this.extensions) return;
+    try {
+      const [gid, aid] = key.split(':');
+      const ses = session.fromPartition(partitionFor(gid, aid));
+      for (const x of ses.extensions.getAllExtensions()) ses.extensions.removeExtension(x.id);
+    } catch {}
+  }
+
+  hasExtensions(key, ses) {
+    return !!this.extensions && (this.extensions.forAccount(key).loads.length > 0 || ses.extensions.getAllExtensions().length > 0);
+  }
+
+  // Deixa na sessão da conta só as extensões ligadas para ela (carrega as novas, troca as que mudaram de
+  // versão e descarrega as desligadas). Só o IdleHub põe extensões nessas sessões.
+  async syncExtensions(rt, ses) {
+    const { loads, problems } = this.extensions.forAccount(rt.key);
+    const want = new Map(loads.map((x) => [x.id, x]));
+    for (const p of problems) this.log(rt, `Não carreguei a extensão ${p.name}: os arquivos dela foram alterados depois de instalada. Reinstale pela tela Extensões.`, 'warn');
+    for (const cur of ses.extensions.getAllExtensions()) {
+      const x = want.get(cur.id);
+      if (!x || path.resolve(cur.path) !== path.resolve(x.dir)) ses.extensions.removeExtension(cur.id);
+    }
+    for (const x of loads) {
+      if (ses.extensions.getExtension(x.id)) continue;
+      try {
+        await ses.extensions.loadExtension(x.dir, { allowFileAccess: false });
+      } catch (e) {
+        this.log(rt, `Não consegui carregar a extensão ${x.name}: ${e.message}`, 'warn');
+      }
+    }
+  }
+
+  // Ligou ou desligou extensões numas contas: ajusta a sessão e recarrega só essas contas (a página
+  // precisa ser recarregada para a extensão entrar ou sair). Conta dormindo pega na próxima vez que acordar.
+  async applyExtensions(keys) {
+    for (const key of keys) {
+      const rt = this.rt.get(key);
+      if (!rt?.view) continue;
+      try {
+        await this.syncExtensions(rt, rt.view.webContents.session);
+      } catch {}
+      if (this.rt.get(key)?.view) this.action(key, 'reload');
+    }
   }
 
   // Só abre janela nova o que a pessoa clicou (anúncios que abrem sozinhos são

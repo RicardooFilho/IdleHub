@@ -15,6 +15,7 @@ const { createEventLog, summarize } = require('./events');
 const { setupAway } = require('./away');
 const daily = require('./daily');
 const groups = require('./groups');
+const { ExtensionStore } = require('./extensions');
 
 // Pasta de dados alternativa (útil para testar sem mexer na sua config real).
 if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
@@ -74,6 +75,7 @@ let mgr = null;
 let idlelive = null;
 let panel = null;
 let remote = null;
+let extensions = null; // extensões do Chrome por conta (extensions.js)
 const tracker = new MetricsTracker(); // histórico de CPU e memória (metrics.js)
 let events = null;
 let away = null;
@@ -376,6 +378,7 @@ function registerIpc() {
     saveConfig();
     buildTrayMenu();
     mgr.sync();
+    extensions.pruneAccounts();
     return cfg;
   });
 
@@ -387,6 +390,7 @@ function registerIpc() {
     saveConfig();
     buildTrayMenu();
     mgr.sync();
+    extensions.pruneAccounts();
     g.accounts.forEach((a) => mgr.forget(g.id, a.id));
     return cfg;
   });
@@ -510,6 +514,31 @@ function registerIpc() {
     return { ...r, config: cfg };
   });
 
+  // Extensões do Chrome (TAG-34/36): instalar sempre passa por uma análise (prepare) e pelo "sim" da pessoa (confirm).
+  // Depois de mudar o que roda numa conta, a conta é recarregada (mgr.applyExtensions).
+  const applied = async (r) => {
+    if (r.ok && r.accounts?.length) await mgr.applyExtensions(r.accounts);
+    return r;
+  };
+  ipcMain.handle('ext:list', () => extensions.list());
+  ipcMain.handle('ext:prepare-store', (_e, input) => extensions.prepareStore(String(input ?? '')));
+  ipcMain.handle('ext:prepare-update', (_e, id) => extensions.prepareUpdate(String(id)));
+  ipcMain.handle('ext:pick-folder', async (_e, id) => {
+    const pick = await dialog.showOpenDialog(win, { title: 'Escolha a pasta da extensão (onde fica o manifest.json)', properties: ['openDirectory'] });
+    if (pick.canceled || !pick.filePaths[0]) return { ok: false, canceled: true };
+    return id ? extensions.prepareUpdateFolder(String(id), pick.filePaths[0]) : extensions.prepareFolder(pick.filePaths[0]);
+  });
+  ipcMain.handle('ext:confirm', async (_e, token, keys) => applied(extensions.confirmInstall(String(token), Array.isArray(keys) ? keys.map(String) : [])));
+  ipcMain.handle('ext:confirm-update', async (_e, token) => applied(extensions.confirmUpdate(String(token))));
+  ipcMain.handle('ext:discard', (_e, token) => extensions.discard(String(token)));
+  ipcMain.handle('ext:rollback', async (_e, id) => applied(extensions.rollback(String(id))));
+  ipcMain.handle('ext:remove', async (_e, id) => applied(extensions.remove(String(id))));
+  ipcMain.handle('ext:set-account', async (_e, id, key, on) => {
+    const r = extensions.setAccount(String(id), String(key), !!on);
+    if (r.ok) await mgr.applyExtensions([String(key)]);
+    return r;
+  });
+
   ipcMain.handle('open:data', () => shell.openPath(app.getPath('userData')));
 }
 
@@ -574,7 +603,14 @@ function start() {
   remote = createRemote({ getSettings: () => cfg.settings });
   events = createEventLog({ dir: app.getPath('userData') });
   events.add({ type: 'app-start' });
-  mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit, onShortcut: sendShortcut, events });
+  extensions = new ExtensionStore({
+    root: path.join(config.dataDir(), 'extensions'),
+    getConfig: () => cfg,
+    saveConfig,
+    fetch: (url, init) => net.fetch(url, init),
+    chromeVersion: process.versions.chrome,
+  });
+  mgr = new AccountManager({ win, getConfig: () => cfg, saveConfig, notify, onChange: scheduleEmit, onShortcut: sendShortcut, events, extensions });
   idlelive = new IdleLive({ onChange: scheduleEmit, onReady: () => panel?.onServerReady() });
   panel = new PanelView({ win, idlelive, onShortcut: sendShortcut });
   registerIpc();

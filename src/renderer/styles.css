@@ -290,6 +290,7 @@ button.perf-row[aria-pressed="true"] { background: var(--brand-soft); box-shadow
 .away-stat {
   display: flex; flex-direction: column; gap: var(--wa-space-3xs); padding: var(--wa-space-s) var(--wa-space-m);
   background: var(--wa-color-surface-lowered); border: 1px solid var(--wa-color-surface-border); border-radius: 10px;
+}
 .away-stat > wa-icon { color: var(--brand-text); }
 .away-stat.warn > wa-icon { color: var(--wa-color-warning-on-quiet); }
 .away-num { font-size: 20px; font-weight: 600; }
@@ -297,6 +298,7 @@ button.perf-row[aria-pressed="true"] { background: var(--brand-soft); box-shadow
 .away-row {
   display: grid; grid-template-columns: minmax(120px, 220px) 1fr; gap: var(--wa-space-s); padding: var(--wa-space-xs) 0;
   border-bottom: 1px solid var(--wa-color-surface-border); font-size: 13px;
+}
 .away-row:last-child { border-bottom: 0; }
 .away-row .who { color: var(--wa-color-text-quiet); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -307,3 +309,18 @@ button.perf-row[aria-pressed="true"] { background: var(--brand-soft); box-shadow
   background: var(--error-fill); color: #fff; box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
 }
 #toast.info { background: var(--wa-color-surface-raised); color: var(--wa-color-text-normal); border: 1px solid var(--wa-color-surface-border); }
+
+/* Extensões do Chrome: um card por extensão, com as contas e a lista do que ela faz. */
+.ext-card {
+  display: flex; flex-direction: column; gap: var(--wa-space-s); padding: var(--wa-space-m);
+  background: var(--wa-color-surface-lowered); border: 1px solid var(--wa-color-surface-border); border-radius: 10px;
+}
+.ext-head { display: flex; align-items: center; gap: var(--wa-space-xs); flex-wrap: wrap; }
+.ext-name { font-weight: 600; font-size: 15px; }
+.ext-game { display: flex; flex-direction: column; gap: var(--wa-space-2xs); }
+.ext-game > .meta { display: flex; align-items: center; gap: var(--wa-space-xs); }
+.ext-accounts { display: flex; flex-wrap: wrap; gap: var(--wa-space-xs) var(--wa-space-l); }
+.ext-actions { display: flex; gap: var(--wa-space-xs); flex-wrap: wrap; }
+.ext-list { display: flex; flex-direction: column; gap: var(--wa-space-xs); margin: 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.4; }
+.ext-list li { display: flex; gap: var(--wa-space-xs); align-items: baseline; }
+.ext-list wa-badge { flex: none; }
