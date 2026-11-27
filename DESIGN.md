@@ -75,6 +75,12 @@ Fora da escala só: bordas, tamanhos (larguras, alturas, ícones, fontes), a alt
 - Confirmação: sempre `ask({ title, text, ok, danger })`, nunca `confirm()` ou `alert()`. O título é uma pergunta curta ("Remover Conta 2?"), o texto diz o que acontece e se dá para voltar atrás, e o botão repete o verbo ("Remover", não "OK").
 - Formulários: `wa-input` com `label` e `hint`, `wa-select`, `wa-switch` (ligar/desligar) e `wa-checkbox` (escolher itens). Grupos com `.form-block` e rótulo `.form-label`.
 
+### Atalhos de teclado
+
+- Valem só com a janela do IdleHub em foco (nada global) e são tratados no processo principal (`src/main/shortcuts.js`), porque o foco dentro de uma conta ou do Painel não chega na página da interface. A interface só reage ao que chega por `window.idle.onShortcut`.
+- A lista aparece nas **Configurações** (só leitura): teclas em `<kbd>` à esquerda, o que fazem à direita (`.shortcuts`). Atalho novo entra em `matchShortcut()`, no teste dele e nessa lista.
+- Com janela ou confirmação aberta (`S.modal`/`S.asking`), os atalhos são ignorados.
+
 ### Estados
 
 - Lista vazia, conta dormindo, jogo sem link e Painel abrindo: `<div class="empty">` com ícone, `h2`, uma frase que diz o que fazer e o botão da ação.

@@ -1,11 +1,13 @@
 // Mostra a página do IdleLive (http://127.0.0.1:3000) dentro da janela do IdleHub.
 // Enquanto ela aparece, as contas dos jogos só ficam escondidas: continuam rodando.
 const { WebContentsView, shell } = require('electron');
+const { attachShortcuts } = require('./shortcuts');
 
 class PanelView {
-  constructor({ win, idlelive }) {
+  constructor({ win, idlelive, onShortcut }) {
     this.win = win;
     this.idlelive = idlelive;
+    this.onShortcut = onShortcut || (() => {});
     this.view = null;
     this.loaded = false;
     this.visible = false;
@@ -29,6 +31,7 @@ class PanelView {
     view.setVisible(false);
     this.win.contentView.addChildView(view);
     const wc = view.webContents;
+    attachShortcuts(wc, this.onShortcut); // o foco dentro do Painel não chega na interface
     // Links de fora (Twitch, Kick, Hub…) abrem no navegador do PC.
     wc.setWindowOpenHandler(({ url }) => {
       if (/^https?:/.test(url)) shell.openExternal(url);
