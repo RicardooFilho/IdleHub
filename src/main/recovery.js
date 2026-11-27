@@ -15,6 +15,10 @@ const BACKOFF_STEPS_MS = [30 * 1000, 1 * MINUTE, 2 * MINUTE, 5 * MINUTE, 10 * MI
 // Depois disso com a tela de verificação do Cloudflare aberta, avisa a pessoa.
 const CHALLENGE_NOTIFY_MS = 2 * MINUTE;
 
+// Jogo mostrando "Reconectando…" por tanto tempo seguido: a conexão não volta sozinha,
+// então recarrega a conta.
+const RECONNECT_LIMIT_MS = 3 * MINUTE;
+
 // Páginas de erro são curtas. Texto maior que isso é um jogo, então só o título vale.
 const ERROR_PAGE_MAX_CHARS = 2500;
 
@@ -30,6 +34,9 @@ const backoffMs = (attempt) => {
 const recentFailures = (history, now) => (history || []).filter((t) => now - t < FAILURE_WINDOW_MS);
 const recordFailure = (history, now) => [...recentFailures(history, now), now];
 const tooManyFailures = (history, now) => recentFailures(history, now).length >= FAILURE_LIMIT;
+
+// `since` é o horário em que o texto de "Reconectando…" apareceu (0 = não está aparecendo).
+const reconnectingTooLong = (since, now) => since > 0 && now - since >= RECONNECT_LIMIT_MS;
 
 // ---------- páginas de erro ----------
 const CHALLENGE_TITLES = [
@@ -127,9 +134,11 @@ module.exports = {
   FAILURE_LIMIT,
   FAILURE_WINDOW_MS,
   CHALLENGE_NOTIFY_MS,
+  RECONNECT_LIMIT_MS,
   backoffMs,
   recordFailure,
   tooManyFailures,
+  reconnectingTooLong,
   classifyPage,
   createInternetCheck,
   checkInternet,

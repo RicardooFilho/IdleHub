@@ -20,6 +20,21 @@ const SESSION_TAKEN_TEXTS = [
   'session has been taken',
 ];
 
+// Frases (em minúsculas) da tela de "Reconectando…" que alguns jogos mostram quando
+// perdem a conexão com o servidor. Também frases inteiras: "conexão" ou "connecting"
+// sozinhas aparecem em qualquer menu. Só vale se ficar assim por vários minutos.
+const RECONNECTING_TEXTS = [
+  'reconectando',
+  'tentando reconectar',
+  'tentando se reconectar',
+  'conexão perdida',
+  'reconnecting',
+  'trying to reconnect',
+  'attempting to reconnect',
+  'connection lost',
+  'lost connection to the server',
+];
+
 const PRESETS = [
   {
     preset: 'pokeidle',
@@ -30,6 +45,7 @@ const PRESETS = [
     suggestedAccounts: 4,
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
     sessionTaken: { textIncludes: SESSION_TAKEN_TEXTS },
+    reconnecting: { textIncludes: RECONNECTING_TEXTS },
     watchers: [
       // Exemplos desligados: ajuste o texto/seletor depois de olhar o jogo
       // com "Inspecionar" e ligue.
@@ -46,6 +62,7 @@ const PRESETS = [
     suggestedAccounts: 5,
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
     sessionTaken: { textIncludes: SESSION_TAKEN_TEXTS },
+    reconnecting: { textIncludes: RECONNECTING_TEXTS },
     watchers: [],
   },
   {
@@ -57,6 +74,7 @@ const PRESETS = [
     suggestedAccounts: 2,
     loggedOut: { urlIncludes: ['login'], textIncludes: [] },
     sessionTaken: { textIncludes: SESSION_TAKEN_TEXTS },
+    reconnecting: { textIncludes: RECONNECTING_TEXTS },
     watchers: [],
   },
 ];
@@ -76,6 +94,7 @@ function gameFromPreset(p, { url, accounts } = {}) {
     accounts: makeAccounts(Math.max(1, Math.min(12, accounts ?? p.suggestedAccounts))),
     loggedOut: JSON.parse(JSON.stringify(p.loggedOut)),
     sessionTaken: JSON.parse(JSON.stringify(p.sessionTaken)),
+    reconnecting: JSON.parse(JSON.stringify(p.reconnecting)),
     watchers: p.watchers.map((w) => ({ ...w, id: newId() })),
   };
 }
@@ -103,6 +122,7 @@ function sanitizeGame(g) {
       textIncludes: list(g.loggedOut?.textIncludes),
     },
     sessionTaken: { textIncludes: list(g.sessionTaken?.textIncludes) },
+    reconnecting: { textIncludes: list(g.reconnecting?.textIncludes) },
     watchers: (g.watchers || []).slice(0, 30).map((w) => ({
       id: str(w.id, 40) || newId(),
       name: str(w.name, 40) || 'Alerta',
@@ -127,4 +147,14 @@ function migrateSessionTaken(g) {
   return true;
 }
 
-module.exports = { PRESETS, newId, gameFromPreset, sanitizeGame, makeAccounts, migrateSessionTaken };
+// Mesma regra para os textos de "Reconectando…": jogos antigos de preset ganham o
+// padrão, os de link livre ficam com a lista vazia (recurso desligado até a pessoa
+// escolher os textos) e uma lista vazia salva de propósito nunca é refeita.
+function migrateReconnecting(g) {
+  if (g.reconnecting && Array.isArray(g.reconnecting.textIncludes)) return false;
+  const p = PRESETS.find((x) => x.preset === g.preset);
+  g.reconnecting = { textIncludes: p ? [...p.reconnecting.textIncludes] : [] };
+  return true;
+}
+
+module.exports = { PRESETS, newId, gameFromPreset, sanitizeGame, makeAccounts, migrateSessionTaken, migrateReconnecting };
