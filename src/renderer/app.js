@@ -600,7 +600,7 @@ function gameHtml(d) {
       <div class="form-block">
         <span class="form-label">Saber quando a conta é aberta em outro lugar</span>
         <div class="form-row">
-          <wa-input size="s" label="Textos de conta aberta em outro lugar (separados por vírgula)" hint="Ex.: aberta em outro lugar, outra aba. Quando a página mostra um deles, o IdleHub pausa a conta por 10 minutos em vez de recarregar." data-f="st-text" value="${esc((d.sessionTaken?.textIncludes || []).join(', '))}"></wa-input>
+          <wa-input size="s" label="Textos de conta aberta em outro lugar (separados por vírgula)" hint="Ex.: aberta em outro lugar, aberto em outra aba. Quando a página mostra um deles, o IdleHub pausa a conta por 10 minutos em vez de recarregar." data-f="st-text" value="${esc((d.sessionTaken?.textIncludes || []).join(', '))}"></wa-input>
         </div>
       </div>
 

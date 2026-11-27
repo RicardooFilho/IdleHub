@@ -11,11 +11,12 @@ const SESSION_TAKEN_TEXTS = [
   'aberta em outro lugar',
   'conectado em outro lugar',
   'logado em outro dispositivo',
-  'outra aba',
+  'aberto em outra aba',
+  'aberta em outra aba',
   'logged in elsewhere',
   'logged in from another',
   'opened in another tab',
-  'another session',
+  'logged in on another device',
   'session has been taken',
 ];
 
