@@ -954,7 +954,8 @@ function settingsHtml(d) {
         <span class="form-label">Desempenho</span>
         <div class="form-row">
           ${num('backgroundFps', 'FPS das contas escondidas', '0 = sem limite. Só limita a animação: o jogo segue rodando.', 0, 144)}
-          ${num('mosaicFps', 'FPS das contas no mosaico', '0 = sem limite. A conta expandida não tem limite.', 0, 144)}
+          ${num('mosaicFps', 'FPS das contas no mosaico', '0 = sem limite.', 0, 144)}
+          ${num('focusFps', 'FPS da conta expandida', '0 = sem limite. Em monitor de 144 Hz ou mais, sem limite gasta bem mais CPU.', 0, 240)}
           ${num('tileBaseWidth', 'Largura de referência do jogo (px)', 'O mosaico encolhe o jogo a partir dela.', 480, 3840)}
         </div>
       </div>

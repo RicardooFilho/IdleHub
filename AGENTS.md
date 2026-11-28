@@ -18,7 +18,8 @@ O público é de jogadores, não programadores, e o app é distribuído para ami
 **Os jogos nunca podem parar de rodar.** Escondidos, minimizados, com o Painel ou uma janela aberta, ou com o app só perto do relógio, os temporizadores dos jogos continuam em 100%:
 - `backgroundThrottling: false` nas contas e as chaves `disable-renderer-backgrounding`, `disable-background-timer-throttling` e `disable-backgrounding-occluded-windows` em `src/main/main.js`;
 - `src/preload/game.js` faz a página se ver sempre visível (`document.hidden = false`);
-- o limite de FPS só reduz a animação (`requestAnimationFrame`). O padrão é 30: menos que isso deixaria lentos os jogos que contam o progresso por quadro (há um teste para isso).
+- o limite de FPS só reduz a animação (`requestAnimationFrame`). O padrão é 30: menos que isso deixaria lentos os jogos que contam o progresso por quadro (há um teste para isso). A conta expandida tem 60 (`focusFps`);
+- `fake-vsync-rate` 64 em `src/main/main.js` faz o Chromium desenhar a ~60 por segundo mesmo em monitor de 240 Hz (menos da metade da CPU). Abaixo de 64 o mosaico não chega aos 30 quadros.
 
 Não troque nada disso sem medir antes (contas escondidas e minimizadas, com `setInterval` e `requestAnimationFrame`). As medições de hoje (e a sonda para repetir) estão em [docs/modo-economico.md](docs/modo-economico.md).
 

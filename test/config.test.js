@@ -42,4 +42,18 @@ test('arquivo quebrado vira config vazia em vez de travar o app', () => {
 test('FPS padrão das contas escondidas não deixa o jogo lento', () => {
   // Jogos que contam o progresso por quadro andariam mais devagar com FPS muito baixo.
   assert.ok(config.DEFAULT_SETTINGS.backgroundFps >= 30);
+  assert.ok(config.DEFAULT_SETTINGS.mosaicFps >= 30);
+});
+
+test('a conta expandida tem limite de FPS, mas fica fluida', () => {
+  // 0 (sem limite) faz a conta desenhar na taxa do monitor (240 Hz = um núcleo inteiro).
+  assert.ok(config.DEFAULT_SETTINGS.focusFps >= 30);
+  assert.ok(config.DEFAULT_SETTINGS.focusFps <= 60);
+});
+
+test('config antiga ganha o limite da conta expandida', () => {
+  config.save({ version: 1, onboarded: true, settings: { mosaicFps: 20 }, games: [] });
+  const c = config.load();
+  assert.equal(c.settings.mosaicFps, 20);
+  assert.equal(c.settings.focusFps, config.DEFAULT_SETTINGS.focusFps);
 });

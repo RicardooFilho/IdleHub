@@ -28,6 +28,11 @@ if (process.env.IDLEHUB_DATA) app.setPath('userData', process.env.IDLEHUB_DATA);
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+// O Chromium desenha no ritmo do monitor (240 vezes por segundo num de 240 Hz), mesmo com o limite de FPS
+// do jogo: animações de CSS e a composição das contas seguem esse ritmo. 64 (e não 60) porque o Chromium
+// entrega ~6% menos que o pedido, e o mosaico precisa de 30 inteiros. Medido: CPU -58%, temporizadores
+// em 100% (docs/modo-economico.md).
+app.commandLine.appendSwitch('fake-vsync-rate', '64');
 
 const APP_ID = 'com.idlehub.app';
 // Em dev (npm start) não define o ID: assim a barra de tarefas usa o ícone da janela.
@@ -95,8 +100,18 @@ let rev = 0; // sobe quando a config muda por fora da interface (bandeja): ela v
 
 const saveConfig = () => config.save(cfg);
 
+// "Bandeja" = janela minimizada e fora da barra de tarefas, não escondida: com win.hide() o Chromium
+// continua desenhando as contas a 30 quadros por segundo sem ninguém ver. Minimizada, para de desenhar
+// e os jogos seguem rodando (medido: 2,4% -> 0,2% de CPU com 4 contas, docs/modo-economico.md).
+function hideToTray() {
+  if (!win || win.isDestroyed()) return;
+  win.setSkipTaskbar(true);
+  win.minimize();
+}
+
 function showWindow() {
   if (!win) return;
+  win.setSkipTaskbar(false);
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -248,11 +263,14 @@ function createWindow() {
   }
   win.once('ready-to-show', () => {
     if (!cfg.settings.startMinimized || !cfg.onboarded) win.show();
+    else hideToTray();
   });
+  // Voltou da bandeja por outro caminho (Alt+Tab): o botão da barra de tarefas volta junto.
+  win.on('restore', () => win.setSkipTaskbar(false));
   win.on('close', (e) => {
     if (!quitting && cfg.settings.closeToTray) {
       e.preventDefault();
-      win.hide();
+      hideToTray();
       if (!trayHintShown) {
         trayHintShown = true;
         notify('IdleHub continua rodando', 'As contas seguem ativas. Use o ícone perto do relógio para abrir ou sair.', undefined, { phone: false });
@@ -426,6 +444,7 @@ function registerIpc() {
       connectionNotifyMin: Math.round(num(s.connectionNotifyMin, d.connectionNotifyMin, 0, 240)),
       backgroundFps: num(s.backgroundFps, d.backgroundFps, 0, 144),
       mosaicFps: num(s.mosaicFps, d.mosaicFps, 0, 144),
+      focusFps: num(s.focusFps, d.focusFps, 0, 240),
       tileBaseWidth: num(s.tileBaseWidth, d.tileBaseWidth, 480, 3840),
       muteAll: !!s.muteAll,
       closeToTray: !!s.closeToTray,

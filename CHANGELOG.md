@@ -2,6 +2,13 @@
 
 Tudo que muda para quem usa o IdleHub. O histórico do IdleLive avulso, de antes de entrar no IdleHub, está em [idlelive/CHANGELOG.md](idlelive/CHANGELOG.md).
 
+## 28/11/2026
+
+### Mudanças
+- **Fechar para perto do relógio agora economiza de verdade**: ao fechar no **X** (com "fechar para a bandeja" ligado) ou ao começar minimizado, a janela é minimizada e sai da barra de tarefas, em vez de só ficar escondida. Escondida, ela continuava desenhando as contas sem ninguém ver; minimizada, para de desenhar, e os jogos seguem rodando como sempre. É o mesmo que acontece quando você minimiza a janela. Para voltar, clique no ícone perto do relógio, como antes.
+- **Menos CPU em monitor de 144 Hz ou mais**: o IdleHub agora desenha no máximo ~60 vezes por segundo, mesmo que o monitor seja mais rápido. Antes, num monitor de 240 Hz, cada conta na tela trabalhava 240 vezes por segundo, mesmo com o jogo limitado a 30 FPS. Medido com 4 contas no mosaico: a CPU caiu para menos da metade, e os jogos rodam na mesma velocidade.
+- **A conta expandida agora tem limite de FPS (60 por padrão)**. Antes ela desenhava na velocidade do monitor: num monitor de 240 Hz eram ~240 quadros por segundo, gastando um núcleo inteiro do PC só nela. Com 60 ela continua fluida e gasta cerca de metade. Só limita a animação: o jogo segue rodando igual. Dá para mudar em **Configurações → Desempenho → FPS da conta expandida** (0 = sem limite, como era antes).
+
 ## 27/11/2026
 
 ### Novidades
