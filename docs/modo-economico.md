@@ -181,6 +181,59 @@ modos "limitar" dão o mesmo atraso nos temporizadores e param o rAF de vez).
 3. Se o modo econômico voltar: por jogo (opt-in), desligado por padrão, com aviso de que "jogos que contam por
    quadro ou por `setTimeout` andam mais devagar", usando `setVisible(false)` + `capturePage` a cada 15 s.
 
+## Monitor de 240 Hz (28/11/2026)
+
+Medido no mesmo PC, agora com monitor de **239 Hz**, 4 contas visíveis, 60 s por rodada (`--fps=…`).
+
+| Limite | rAF (fps) | setTimeout | CPU total |
+|---|---|---|---|
+| sem limite (era o da conta expandida) | 211 a 237 | 94% a 98% | 15,5% a 15,9% |
+| 60 (novo padrão da conta expandida, `focusFps`) | 59 a 60 | 97% a 98% | 9,1% |
+| 30 (mosaico) | 30 | 98% | 7,1% a 7,7% |
+
+- Sem limite, a conta desenha na taxa do monitor. Por isso a conta expandida ganhou o limite `focusFps` (60).
+- **Testado e descartado:** no quadro pulado, esperar com `setTimeout` até a hora do próximo, em vez de pedir outro
+  `requestAnimationFrame` a cada atualização do monitor. Em rodadas alternadas (antigo, novo, antigo, novo) economizou só
+  0,5 a 1 ponto de CPU com 4 contas e deixou o `setTimeout` encadeado em **87% a 89%** (contra 98% do limitador de hoje).
+  Acordar a cada atualização do monitor é o que mantém o relógio de alta resolução do Windows ligado para a página.
+- Baixar o FPS do mosaico **quase não economiza**: 30 → 15 → 10 deu 7,6% → 7,2% → 7,1%. O custo vem do Chromium
+  trabalhando no ritmo do monitor (animações de CSS, composição, GPU), não do desenho do jogo.
+- **O que resolve: `fake-vsync-rate`** (agora em `src/main/main.js`), que dá ao Chromium um ritmo de quadros fixo no lugar
+  do monitor. Com 60, ele entrega só ~56,5 quadros/s e o mosaico fica em 28 (abaixo do piso de 30); com **64**, fica em 30.
+
+| `fake-vsync-rate` | Limite | rAF (fps) | setTimeout | CPU total |
+|---|---|---|---|---|
+| (do monitor, 239 Hz) | 30 | 30 | 98% | 7,1% a 7,7% |
+| 60 | 30 | 28,2 | 98% | 3,1% |
+| **64** | **30** | **30,0** | **98%** | **3,2%** |
+| **64** | **60** | **59,8** | **98%** | **5,0%** |
+| 64 | sem limite | 59,9 | 98% | 4,9% |
+| 60 | escondida / minimizada | 1,0 | 98% | 0,3% |
+
+  `setInterval`, `Date` e WebSocket ficaram em 100% em todas. `disable-gpu-vsync` sozinha não mudou nada (7,7%).
+  Não medido: monitor de 60 Hz (o app passa a desenhar a 64 em vez de 60, ~7% a mais na pior hipótese) e se a imagem
+  fica com cortes (*tearing*) em algum PC.
+- **Bandeja**: com `win.hide()` as contas seguem desenhando a 30 quadros/s, mesmo escondidas (`setVisible(false)`):
+  2,4% de CPU com 4 contas. **Minimizada e fora da barra de tarefas** (`setSkipTaskbar(true)` + `minimize()`, estado
+  `tray-min` da sonda): 0,2%, rAF a 1 quadro/s (como minimizar à mão) e `setTimeout` igual (98%). O app passou a fazer
+  assim (`hideToTray()` em `src/main/main.js`). Nos jogos reais, minimizar levou o app de ~38% para ~8% da CPU do PC.
+- **Garagem e textura** (o que o IdleDeck faz), medidas e **não adotadas**:
+
+| Modo (4 contas) | rAF (fps) | setTimeout | CPU total |
+|---|---|---|---|
+| visível, limitador do app a 20 / 10 / 6 | 20 / 10 / 6 | 98% | 1,8% / 1,5% / 1,4% |
+| textura (`offscreen` + `useSharedTexture` + `setFrameRate`) a 20 / 10 / 6 / 1 | 20 / 10 / 6 / 1 | 98% | 3,3% / 2,1% / 1,2% / 0,2% |
+| escondida, janela normal ou minimizada (o de hoje) | 1 | 98% | 0,2% |
+| garagem (janela fora dos monitores + página de 1x1 mudando de cor a cada 100 ms) | 10 | 98% | 0,8% |
+| garagem sem a página que pisca, minimizada | 1 | 98% | 0,2% |
+
+  A textura não gasta menos que o limitador do app até 10 quadros/s e exigiria repassar mouse e teclado à mão. A garagem
+  só troca 0,2% por 0,8% para ter 10 quadros/s nas escondidas. Nos jogos reais, baixar o FPS do mosaico de 30 para 10
+  **quase não mudou a CPU**: o peso é desenhar a conta na tela (minimizar resolve), não a animação que o limitador alcança.
+  Os `setTimeout` em 98% nesta rodada (contra 81% a 92% na primeira) mostram que ele depende do relógio do Windows no momento.
+- Para experimentar outras chaves na sonda: `IDLEHUB_PROBE_SWITCHES="chave,chave=valor"` e `IDLEHUB_PROBE_VSYNC=60`.
+- A sonda agora responde ao `us:plan` do preload (scripts de usuário): sem isso, a página de teste nunca terminava de abrir.
+
 ## Limites da medição
 
 - **Página sintética**, não jogos reais: sem login, sem áudio, sem Worker/WebGL. Jogos de verdade podem pesar mais

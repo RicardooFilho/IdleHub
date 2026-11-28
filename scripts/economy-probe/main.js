@@ -7,7 +7,7 @@
 // Quem monta os cenários é o run.js. Só abre páginas de teste locais, com pasta de dados temporária.
 //
 // Uso (pelo run.js): electron scripts/economy-probe/main.js   (cenário em IDLEHUB_ECON_CFG, JSON)
-const { app, BrowserWindow, WebContentsView, screen } = require('electron');
+const { app, BaseWindow, BrowserWindow, WebContentsView, ipcMain, screen, sharedTexture } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -15,8 +15,9 @@ const path = require('node:path');
 const cfg = JSON.parse(process.env.IDLEHUB_ECON_CFG || '{}');
 const {
   name = 'teste', port, mode = 'visible', win: winState = 'normal', accounts = 4,
-  warmMs = 8000, settleMs = 8000, ms = 120000, fps = 30, capture = null,
+  warmMs = 8000, settleMs = 8000, ms = 120000, fps = 30, capture = null, textureFps = 20, pulseMs = 100,
 } = cfg;
+const TEXTURE = mode === 'texture';
 
 // Dados de teste: nunca %APPDATA%/IdleHub.
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'idlehub-econ-probe-'));
@@ -25,6 +26,18 @@ app.setPath('userData', tmp);
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('fake-vsync-rate', process.env.IDLEHUB_PROBE_VSYNC || '64');
+// Chaves extras só para experimentos: IDLEHUB_PROBE_SWITCHES="chave,chave=valor".
+for (const s of String(process.env.IDLEHUB_PROBE_SWITCHES || '').split(',').filter(Boolean)) {
+  const [k, v] = s.split('=');
+  if (v === undefined) app.commandLine.appendSwitch(k);
+  else app.commandLine.appendSwitch(k, v);
+}
+
+// O preload pergunta os scripts de usuário da conta com sendSync: sem resposta, a página nunca termina de abrir.
+ipcMain.on('us:plan', (e) => {
+  e.returnValue = [];
+});
 
 const emit = (r) => {
   const f = process.env.IDLEHUB_PROBE_OUT;
@@ -47,8 +60,13 @@ app.whenReady().then(async () => {
     show: false, useContentSize: true, width: CONTENT_W, height: CONTENT_H, resizable: false, title: 'IdleHub (medição do modo econômico)',
     x: wa.x + wa.width - CONTENT_W - 40, y: wa.y + wa.height - CONTENT_H - 70,
     backgroundColor: '#0f1117',
+    // Modo "textura": a janela é a "interface" que recebe e pinta os quadros das contas.
+    ...(TEXTURE ? { webPreferences: { preload: path.join(__dirname, 'host-preload.js'), sandbox: true, contextIsolation: true } } : {}),
   });
+  if (TEXTURE) await win.loadURL('data:text/html,<body style="margin:0;background:%230f1117;overflow:hidden"></body>');
   let cover = null;
+  let garage = null;
+  const extraWins = [];
 
   // Mosaico: até 4 contas em 2x2; 8 em 4x2.
   const cols = accounts > 4 ? 4 : 2;
@@ -69,6 +87,39 @@ app.whenReady().then(async () => {
       backgroundThrottling: false,
       spellcheck: false,
     };
+    if (TEXTURE) {
+      // Conta desenhada fora da tela: o app escolhe quantos quadros ela gera (setFrameRate) e
+      // manda cada quadro (textura da GPU, sem copiar pixels) para a janela pintar.
+      const t = tile(i);
+      const host = new BrowserWindow({ show: false, frame: false, width: t.width, height: t.height, webPreferences: { ...webPreferences, offscreen: { useSharedTexture: true } } });
+      extraWins.push(host);
+      const wc = host.webContents;
+      wc.setFrameRate(textureFps);
+      let busy = false;
+      wc.on('paint', (e) => {
+        const tex = e.texture;
+        if (!tex) return;
+        if (busy || win.isDestroyed()) return tex.release();
+        busy = true;
+        let imported;
+        try {
+          imported = sharedTexture.importSharedTexture({ textureInfo: tex.textureInfo, allReferencesReleased: () => tex.release() });
+        } catch (err) {
+          tex.release();
+          busy = false;
+          return ev({ importFail: String(err.message).slice(0, 120) });
+        }
+        sharedTexture.sendSharedTexture({ frame: win.webContents.mainFrame, importedSharedTexture: imported }, i)
+          .catch((err) => ev({ sendFail: String(err.message).slice(0, 120) }))
+          .finally(() => {
+            imported.release();
+            busy = false;
+          });
+      });
+      wc.on('render-process-gone', (_e, d) => ev({ gone: i, reason: d.reason }));
+      views.push({ i, view: null, host, wc, bounds: t, pid: 0 });
+      continue;
+    }
     const view = new WebContentsView({ webPreferences });
     view.setBackgroundColor('#0f1117');
     view.setBounds(tile(i));
@@ -78,6 +129,25 @@ app.whenReady().then(async () => {
     views.push({ i, view, wc: view.webContents, bounds: tile(i), pid: 0 });
   }
   win.showInactive();
+  if (TEXTURE) {
+    const tiles = views.map((v) => ({ i: v.i, ...v.bounds }));
+    await win.webContents.executeJavaScript(`window.postMessage(${JSON.stringify({ type: 'tiles', tiles })}, '*')`);
+  }
+
+  // "Garagem": janela de verdade, mostrada mas posicionada fora de todos os monitores, onde ficam as contas
+  // escondidas. Uma página de 1x1 muda de cor a cada `pulseMs` para a janela continuar gerando quadros.
+  const makeGarage = (withPulse) => {
+    const right = Math.max(...screen.getAllDisplays().map((d) => d.bounds.x + d.bounds.width));
+    garage = new BaseWindow({ x: right + 200, y: 0, width: CONTENT_W, height: CONTENT_H, show: false, frame: false, focusable: false, skipTaskbar: true, backgroundColor: '#0f1117' });
+    garage.showInactive();
+    if (withPulse) {
+      const pulse = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false } });
+      pulse.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+      garage.contentView.addChildView(pulse);
+      pulse.webContents.loadURL(`data:text/html,${encodeURIComponent(`<body style="margin:0"><script>let k=0;setInterval(()=>{document.body.style.background=(k++%2)?'#0f1118':'#0f1117'},${pulseMs})</script>`)}`);
+    }
+    report.garageBounds = garage.getBounds();
+  };
 
   await Promise.all(
     views.map((v) => new Promise((resolve) => {
@@ -99,6 +169,14 @@ app.whenReady().then(async () => {
     for (const v of views) {
       switch (mode) {
         case 'visible':
+        case 'texture':
+          break;
+        case 'garage':
+        case 'garage-nopulse':
+          if (!garage) makeGarage(mode === 'garage');
+          win.contentView.removeChildView(v.view);
+          garage.contentView.addChildView(v.view);
+          v.view.setVisible(false);
           break;
         case 'hidden': // o que o app faz hoje com conta fora da tela (accounts.js: applyLayout)
           v.view.setVisible(false);
@@ -147,6 +225,10 @@ app.whenReady().then(async () => {
       }
       case 'tray': // "fechar para a bandeja": a janela é escondida (win.hide())
         win.hide();
+        break;
+      case 'tray-min': // bandeja feita com a janela minimizada e fora da barra de tarefas
+        win.setSkipTaskbar(true);
+        win.minimize();
         break;
       default:
         throw new Error(`estado desconhecido: ${winState}`);
@@ -289,9 +371,12 @@ app.whenReady().then(async () => {
     };
   }
   report.mainMemMB = process.memoryUsage().rss / 1048576;
+  if (TEXTURE) report.texture = { fps: textureFps, drawn: Number(await win.webContents.executeJavaScript('document.documentElement.dataset.drawn || 0').catch(() => -1)) };
 
   emit(report);
   if (cover) cover.destroy();
+  if (garage) garage.destroy();
+  for (const w of extraWins) if (!w.isDestroyed()) w.destroy();
   win.destroy();
   app.exit(0);
 });

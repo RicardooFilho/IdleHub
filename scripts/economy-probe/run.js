@@ -8,7 +8,8 @@
 // Opções: --modes, --states, --accounts (lista), --capture (lista de intervalos em ms; vazio = sem captura),
 //         --ms (tempo medindo), --warm, --settle, --fps (limite de FPS das contas, padrão 30), --stay-hidden=0|1,
 //         --out, --resume, --tag (rótulo extra).
-// Modos: visible, hidden (o de hoje), removed, zero, offscreen, hidden-throttle, removed-throttle.
+// Modos: visible, hidden (o de hoje), removed, zero, offscreen, hidden-throttle, removed-throttle,
+//        garage, garage-nopulse (contas numa janela fora da tela, --pulse=ms) e texture (fora da tela, --texture-fps).
 // Estados da janela: normal, minimized, occluded, tray.
 // Precisa do Electron do projeto (npm install) ou de NODE_PATH apontando para um node_modules com ele.
 // Janelas pequenas aparecem no canto da tela durante a medição (sem roubar o foco) e se fecham sozinhas.
@@ -32,6 +33,8 @@ const ms = Number(opt('ms', '120000'));
 const warmMs = Number(opt('warm', '8000'));
 const settleMs = Number(opt('settle', '8000'));
 const fps = Number(opt('fps', '30'));
+const textureFps = Number(opt('texture-fps', '20'));
+const pulseMs = Number(opt('pulse', '100'));
 const stayHidden = opt('stay-hidden', '1') !== '0';
 const tag = opt('tag', '');
 const out = opt('out', path.join(os.tmpdir(), `economy-probe-${Date.now()}.jsonl`));
@@ -46,7 +49,7 @@ for (const accounts of accountsList) {
       for (const interval of captureList.length ? captureList : [0]) {
         const capture = interval ? { intervalMs: interval, stayHidden } : null;
         const name = [tag, mode, win, `${accounts}c`, capture ? `cap${interval / 1000}s${stayHidden ? '' : '-show'}` : '', ms === 120000 ? '' : `${Math.round(ms / 1000)}s`].filter(Boolean).join('_');
-        scenarios.push({ name, mode, win, accounts, ms, warmMs, settleMs, fps, capture });
+        scenarios.push({ name, mode, win, accounts, ms, warmMs, settleMs, fps, capture, textureFps, pulseMs });
       }
     }
   }
