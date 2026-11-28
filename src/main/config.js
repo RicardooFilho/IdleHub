@@ -14,6 +14,8 @@ const DEFAULT_SETTINGS = {
   // 30 é seguro também para jogos que contam o progresso por quadro desenhado.
   backgroundFps: 30, // FPS das contas escondidas (0 = sem limite)
   mosaicFps: 30, // FPS das contas visíveis no mosaico (0 = sem limite)
+  // Sem limite, num monitor de 240 Hz a conta expandida desenhava 240 quadros por segundo (um núcleo inteiro só nela).
+  focusFps: 60, // FPS da conta expandida (0 = sem limite)
   muteAll: true, // true = tudo mudo; false = só a conta expandida toca som
   closeToTray: true,
   notifyWindows: true,

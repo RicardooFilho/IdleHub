@@ -735,7 +735,7 @@ class AccountManager {
         }
         rt.mode = 'hidden';
       }
-      const fps = rt.mode === 'focus' ? 0 : rt.mode === 'mosaic' ? s.mosaicFps : s.backgroundFps;
+      const fps = rt.mode === 'focus' ? s.focusFps : rt.mode === 'mosaic' ? s.mosaicFps : s.backgroundFps;
       if (rt.fps !== fps) {
         rt.fps = fps;
         wc.executeJavaScript(`window.__idleHubSetFps && window.__idleHubSetFps(${Number(fps) || 0})`, true).catch(() => {});

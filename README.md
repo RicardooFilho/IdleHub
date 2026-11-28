@@ -104,6 +104,8 @@ cada 6 horas, baixa a versão nova e instala ao fechar.
   texto das páginas. Apagar o arquivo só zera os resumos.
 - **Memória:** contas escondidas rodam com FPS limitado (só a animação; os temporizadores do
   jogo seguem em 100%); contas dormindo não gastam nada.
+- **CPU:** o que mais gasta é desenhar as contas na tela. Minimizada ou fechada para perto do relógio,
+  a janela para de desenhar e os jogos seguem rodando (com 11 contas, de ~38% para ~8% da CPU num PC de 16 núcleos).
 
 ## Catálogo de jogos
 

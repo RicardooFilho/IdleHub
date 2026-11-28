@@ -61,6 +61,9 @@ function patch() {
   const raf = window.requestAnimationFrame.bind(window);
   const caf = window.cancelAnimationFrame.bind(window);
 
+  // O quadro pulado pede outro requestAnimationFrame (a página acorda a cada atualização do monitor).
+  // Não troque por setTimeout até a hora do próximo quadro: medido em 27/11/2026, gasta só ~1% a menos
+  // de CPU com 4 contas e deixa o setTimeout do jogo ~10% mais lento (docs/modo-economico.md).
   window.requestAnimationFrame = function (cb) {
     const id = ++seq;
     const tick = (t) => {
